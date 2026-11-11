@@ -26,9 +26,6 @@ import {
   ChevronDown,
   ChevronUp,
   MoreVertical,
-  Moon,
-  Sun,
-  Menu,
   Music,
 } from "lucide-react";
 import {
@@ -94,8 +91,6 @@ function parseDurationSec(dur: string): number {
 
 export default function NgePlayPage() {
   const [tab, setTab] = useState<TabId>("home");
-  const [dark, setDark] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileVolOpen, setMobileVolOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [playlists, setPlaylists] = useState<YouTubePlaylist[]>([]);
@@ -272,7 +267,6 @@ export default function NgePlayPage() {
   }
 
   useEffect(() => {
-    setDark(document.documentElement.classList.contains("dark"));
     let cancelled = false;
     const hadQueue = hydrateForUser("guest");
     hydratedRef.current = true;
@@ -523,7 +517,6 @@ export default function NgePlayPage() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setNowPlayingOpen(false);
-        setMobileMenuOpen(false);
         setMobileVolOpen(false);
         setNewPlaylistOpen(false);
         setTrackMenu(null);
@@ -860,47 +853,27 @@ export default function NgePlayPage() {
   const progressPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const volPct = muted ? 0 : volume;
 
-  function toggleDarkMode() {
-    setDark((prev) => {
-      const next = !prev;
-      document.documentElement.classList.toggle("dark", next);
-      try {
-        localStorage.setItem("ngeplay_theme", next ? "dark" : "light");
-      } catch {}
-      return next;
-    });
-  }
-
   return (
-    <div className="min-h-screen w-full bg-white dark:bg-[#0D0F14] text-[#18181B] dark:text-[#F4F5F7] flex flex-col select-none">
-      <header className="sticky top-0 z-20 bg-white/95 dark:bg-[#0D0F14]/95 backdrop-blur-md border-b border-black/[0.04] dark:border-white/[0.06] px-4 sm:px-8 py-4 flex items-center justify-between gap-3 sm:gap-4 shrink-0">
-          <div className="flex items-center gap-2 lg:w-[200px] shrink-0">
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              aria-label="Menu"
-              className="lg:hidden p-2 -ml-1 rounded-full text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#F4F5F7] dark:hover:bg-[#1A1D26] cursor-pointer"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => {
-                setTab("home");
-                setActiveAlbum(null);
-                setChannelInfo(null);
-              }}
-              className="flex items-center gap-2.5 cursor-pointer group shrink-0"
-            >
-              <svg className="w-7 h-7 shrink-0 drop-shadow-[0_4px_10px_rgba(255,208,20,0.45)]" viewBox="0 0 32 32" fill="none">
-                <path
-                  d="M7 6.8C7 4.45 9.62 3.05 11.58 4.35L25.4 13.55C27.15 14.71 27.15 17.29 25.4 18.45L11.58 27.65C9.62 28.95 7 27.55 7 25.2V6.8Z"
-                  fill="#FFD014"
-                />
-              </svg>
-              <span className="font-extrabold text-[17px] tracking-tight text-[#18181B] dark:text-white">
-                Nge-Play
-              </span>
-            </button>
-          </div>
+    <div className="min-h-screen w-full bg-white text-[#18181B] flex flex-col select-none">
+      <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-black/[0.04] px-4 sm:px-8 py-4 flex items-center justify-between gap-4 shrink-0">
+          <button
+            onClick={() => {
+              setTab("home");
+              setActiveAlbum(null);
+              setChannelInfo(null);
+            }}
+            className="flex items-center gap-2.5 lg:w-[200px] cursor-pointer group shrink-0"
+          >
+            <svg className="w-7 h-7 shrink-0 drop-shadow-[0_4px_10px_rgba(255,208,20,0.45)]" viewBox="0 0 32 32" fill="none">
+              <path
+                d="M7 6.8C7 4.45 9.62 3.05 11.58 4.35L25.4 13.55C27.15 14.71 27.15 17.29 25.4 18.45L11.58 27.65C9.62 28.95 7 27.55 7 25.2V6.8Z"
+                fill="#FFD014"
+              />
+            </svg>
+            <span className="font-extrabold text-[17px] tracking-tight text-[#18181B]">
+              Nge-Play
+            </span>
+          </button>
 
           <form
             onSubmit={(e) => {
@@ -909,13 +882,13 @@ export default function NgePlayPage() {
             }}
             className="relative flex-1 max-w-xl"
           >
-            <Search className="w-4 h-4 text-[#B0B7C3] dark:text-[#6B7280] absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-[#B0B7C3] absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search for songs, artists, albums, etc..."
-              className="w-full h-10 bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EFEFF2] dark:hover:bg-[#1B1F2A] focus:bg-white dark:focus:bg-[#1B1F2A] border border-transparent focus:border-[#FFD014]/70 rounded-full pl-11 pr-9 text-xs sm:text-[13px] text-[#18181B] dark:text-[#F4F5F7] placeholder:text-[#9CA3AF] dark:placeholder:text-[#6B7280] focus:outline-none transition-all"
+              className="w-full h-10 bg-[#F4F5F7] hover:bg-[#EFEFF2] focus:bg-white border border-transparent focus:border-[#FFD014]/70 rounded-full pl-11 pr-9 text-xs sm:text-[13px] text-[#18181B] placeholder:text-[#9CA3AF] focus:outline-none transition-all"
             />
             {query && (
               <button
@@ -925,21 +898,14 @@ export default function NgePlayPage() {
                   if (!activePlaylistId && playlists[0]) handleSelectPlaylist(playlists[0]);
                 }}
                 title="Clear search"
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white cursor-pointer"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#18181B] cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </form>
 
-          <button
-            onClick={toggleDarkMode}
-            title={dark ? "Light Mode" : "Dark Mode"}
-            aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-            className="w-10 h-10 rounded-full bg-[#F7F8FA] dark:bg-[#161922] hover:bg-[#FFF9DB] dark:hover:bg-[#222632] border border-black/[0.04] dark:border-white/[0.08] text-[#4B5563] dark:text-[#FFD014] flex items-center justify-center transition-colors cursor-pointer shrink-0"
-          >
-            {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
+          <div className="hidden lg:block lg:w-[200px] shrink-0" />
         </header>
 
         <div className="flex-1 flex min-w-0">
@@ -1614,83 +1580,6 @@ export default function NgePlayPage() {
         </footer>
       </div>
 
-
-      {mobileMenuOpen && (
-        <div
-          onClick={() => setMobileMenuOpen(false)}
-          className="lg:hidden fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-68 max-w-[82vw] h-full bg-white dark:bg-[#0D0F14] border-r border-black/[0.06] dark:border-white/[0.08] p-5 flex flex-col overflow-y-auto"
-          >
-            <div className="flex items-center justify-between pb-4 border-b border-black/[0.05] dark:border-white/[0.06]">
-              <span className="font-extrabold text-base text-[#18181B] dark:text-white">
-                Nge-Play
-              </span>
-              <button
-                onClick={() => setMobileMenuOpen(false)}
-                className="p-1.5 rounded-full text-[#6B7280] dark:text-[#9CA3AF] hover:bg-[#F4F5F7] dark:hover:bg-[#161922] cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-[11px] font-bold tracking-wider text-[#B0B7C3] dark:text-[#6B7280] px-3 mt-5 mb-2">
-              Library
-            </p>
-            <button
-              onClick={() => {
-                setTab("history");
-                setMobileMenuOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-full text-[13px] cursor-pointer ${
-                tab === "history"
-                  ? "bg-[#FFD014] text-[#18181B] font-bold"
-                  : "text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#F7F8FA] dark:hover:bg-[#161922] font-medium"
-              }`}
-            >
-              <Clock className="w-4 h-4 shrink-0" />
-              <span>History</span>
-            </button>
-            <p className="text-[11px] font-bold tracking-wider text-[#B0B7C3] dark:text-[#6B7280] px-3 mt-5 mb-2">
-              Playlists
-            </p>
-            <div className="space-y-1">
-              {customPlaylists.map((pl) => (
-                <button
-                  key={pl.id}
-                  onClick={() => {
-                    setActiveCustomPlId(pl.id);
-                    setTab("playlist");
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between gap-2 px-4 py-2 rounded-full text-[13px] cursor-pointer ${
-                    tab === "playlist" && activeCustomPlId === pl.id
-                      ? "bg-[#FFD014] text-[#18181B] font-bold"
-                      : "text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#F7F8FA] dark:hover:bg-[#161922] font-medium"
-                  }`}
-                >
-                  <span className="flex items-center gap-3 min-w-0">
-                    <ListMusic className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{pl.name}</span>
-                  </span>
-                  <span className="text-[10px] opacity-60 shrink-0">{pl.tracks.length}</span>
-                </button>
-              ))}
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setNewPlaylistOpen(true);
-                }}
-                className="w-full flex items-center gap-3 px-4 py-2 rounded-full text-[13px] font-medium text-[#4B5563] dark:text-[#9CA3AF] hover:bg-[#F7F8FA] dark:hover:bg-[#161922] cursor-pointer"
-              >
-                <ListPlus className="w-4 h-4 shrink-0" />
-                <span>New Playlist</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {trackMenu && (
         <div

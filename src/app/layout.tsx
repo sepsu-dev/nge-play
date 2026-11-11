@@ -39,21 +39,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      suppressHydrationWarning
       className={`${plusJakartaSans.variable} ${outfit.variable} ${bricolage.variable}`}
     >
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              "try{var t=localStorage.getItem('ngeplay_theme');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.classList.add('dark')}catch(e){}",
-          }}
-        />
-      </head>
-      <body className="antialiased font-sans min-h-screen bg-white dark:bg-[#0D0F14] text-[#18181B] dark:text-[#F4F5F7]">
+      <body className="antialiased font-sans min-h-screen bg-white text-[#18181B]">
         <NextTopLoader showSpinner={false} color="#FFD014" />
         <TooltipProvider>{children}</TooltipProvider>
-        <Toaster position="top-center" richColors />
+        <Toaster position="top-center" theme="light" richColors />
       </body>
     </html>
   );
