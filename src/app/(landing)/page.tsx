@@ -19,6 +19,7 @@ import {
   LogOut,
   ArrowLeft,
   X,
+  Music,
 } from "lucide-react";
 import {
   fetchTrackLyrics,
@@ -104,6 +105,57 @@ function parseDurationSec(dur: string): number {
   if (parts.length === 2) return parts[0] * 60 + parts[1];
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return 0;
+}
+
+function TrackCover({
+  src,
+  trackId,
+  alt,
+  className = "w-full h-full object-cover",
+  iconClass = "w-4 h-4",
+  lazy = false,
+}: {
+  src?: string;
+  trackId?: string;
+  alt: string;
+  className?: string;
+  iconClass?: string;
+  lazy?: boolean;
+}) {
+  const fallback = trackId ? `https://i.ytimg.com/vi/${trackId}/hqdefault.jpg` : "";
+  const [imgSrc, setImgSrc] = useState(src || fallback);
+
+  useEffect(() => {
+    setImgSrc(src || fallback);
+  }, [src, fallback]);
+
+  if (!imgSrc) {
+    return (
+      <div className={`${className} flex items-center justify-center bg-[#F3F5F9] text-[#9CA3AF]`}>
+        <Music className={iconClass} />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imgSrc}
+      alt={alt}
+      className={className}
+      loading={lazy ? "lazy" : undefined}
+      referrerPolicy="no-referrer"
+      onLoad={(e) => {
+        const img = e.currentTarget;
+        if (imgSrc === fallback && img.naturalWidth === 120 && img.naturalHeight === 90) {
+          setImgSrc("");
+        }
+      }}
+      onError={() => {
+        if (fallback && imgSrc !== fallback) setImgSrc(fallback);
+        else setImgSrc("");
+      }}
+    />
+  );
 }
 
 export default function NgePlayPage() {
@@ -654,7 +706,7 @@ export default function NgePlayPage() {
   }
 
   async function loadMoreChannel() {
-    if (!channelInfo?.id || !channelCont || !channelApiKey || loadingMore) return;
+    if (!channelInfo?.id || !channelCont || loadingMore) return;
     setLoadingMore(true);
     try {
       const more = await fetchYouTubeChannel(
@@ -685,7 +737,7 @@ export default function NgePlayPage() {
     try {
       const data = await fetchYouTubeExplore(pl.id);
       if (data.tracks.length) setResults(data.tracks);
-      else toast.error("Failed to load YouTube playlist");
+      else toast.error("Failed to load YouTube Music playlist");
     } finally {
       setSearching(false);
     }
@@ -694,7 +746,7 @@ export default function NgePlayPage() {
   async function handleSearch(searchQuery: string) {
     const q = searchQuery.trim();
     if (!q) return;
-    const chMatch = q.match(/youtube\.com\/(?:channel\/(UC[\w-]+)|(@[\w.-]+))/i);
+    const chMatch = q.match(/(?:music\.)?youtube\.com\/(?:channel\/(UC[\w-]+)|(@[\w.-]+))/i);
     if (chMatch) return openChannel(chMatch[1] || chMatch[2]);
     if (q.startsWith("@") && !q.includes(" ")) return openChannel(q);
 
@@ -704,7 +756,7 @@ export default function NgePlayPage() {
     setHeroTitle(`Results: ${q}`);
     try {
       const items = await searchYouTube(q);
-      if (!items.length) toast.error("No tracks found on YouTube");
+      if (!items.length) toast.error("No tracks found on YouTube Music");
       else setResults(items);
     } finally {
       setSearching(false);
@@ -797,7 +849,7 @@ export default function NgePlayPage() {
                     className="px-2.5 py-1.5 rounded-xl text-xs bg-[#FCEAEA] text-[#D9383A] font-semibold flex items-center gap-1 cursor-pointer"
                   >
                     <ArrowLeft className="w-3 h-3" />
-                    Channel
+                    Artist
                   </button>
                 )}
               </nav>
@@ -816,7 +868,7 @@ export default function NgePlayPage() {
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search songs, @channel, or link..."
+                  placeholder="Search songs, artist, @handle, or link..."
                   className="w-full bg-[#F5F6F8] border border-transparent focus:border-[#F5B5B5] focus:bg-white rounded-full pl-8 pr-7 py-1.5 text-xs text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none transition-all"
                 />
                 {query && (
@@ -850,17 +902,16 @@ export default function NgePlayPage() {
           <section className="flex flex-wrap items-center justify-between gap-3 pb-4 shrink-0">
             <div className="flex items-center gap-3.5 min-w-0">
               <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#F3F5F9] border border-black/[0.05] shrink-0">
-                {heroCover ? (
-                  <img
-                    src={heroCover}
-                    alt={sectionTitle}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-[#9CA3AF] text-[10px]">
-                    YT
-                  </div>
-                )}
+                <TrackCover
+                  src={heroCover}
+                  trackId={
+                    tab === "channel" && channelInfo?.avatar
+                      ? undefined
+                      : displayedTracks[0]?.id || currentTrack?.id
+                  }
+                  alt={sectionTitle}
+                  iconClass="w-5 h-5"
+                />
               </div>
               <div className="min-w-0">
                 <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#111827] truncate">
@@ -871,7 +922,7 @@ export default function NgePlayPage() {
                     <span>
                       {[channelInfo.handle, channelInfo.subscribers, channelInfo.videoCount]
                         .filter(Boolean)
-                        .join(" · ") || "YouTube channel tracks"}
+                        .join(" · ") || "YouTube Music artist"}
                     </span>
                   ) : (
                     <>
@@ -917,7 +968,7 @@ export default function NgePlayPage() {
                   onClick={(e) => openChannel(currentTrack, e)}
                   className="bg-[#F5F6F8] hover:bg-[#EAECEF] text-[#374151] text-xs font-semibold px-3.5 py-2 rounded-full transition-colors cursor-pointer"
                 >
-                  Channel
+                  Artist
                 </button>
               )}
               {tab === "queue" && queue.length > 1 && currentTrack && (
@@ -955,8 +1006,8 @@ export default function NgePlayPage() {
 
           <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_80px_52px_64px] gap-3 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] border-b border-[#F3F4F6] shrink-0">
             <span>Track</span>
-            <span className="hidden sm:block">Channel</span>
-            <span className="hidden md:block text-right">Views</span>
+            <span className="hidden sm:block">Artist</span>
+            <span className="hidden md:block text-right">Plays</span>
             <span className="hidden sm:block text-right">Time</span>
             <span />
           </div>
@@ -965,7 +1016,7 @@ export default function NgePlayPage() {
             {searching ? (
               <div className="flex flex-col items-center justify-center py-20 text-[#6B7280] gap-3">
                 <Loader2 className="w-6 h-6 animate-spin text-[#EE3B3B]" />
-                <p className="text-xs font-medium">Loading music from YouTube...</p>
+                <p className="text-xs font-medium">Loading music from YouTube Music...</p>
               </div>
             ) : displayedTracks.length === 0 ? (
               <div className="text-center py-16 text-[#9CA3AF] text-xs">
@@ -985,11 +1036,12 @@ export default function NgePlayPage() {
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="relative w-9 h-9 rounded-lg overflow-hidden bg-[#F3F5F9] shrink-0">
-                        <img
+                        <TrackCover
                           src={track.thumbnail}
+                          trackId={track.id}
                           alt={track.title}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
+                          iconClass="w-4 h-4"
+                          lazy
                         />
                         <div
                           className={`absolute inset-0 bg-black/35 flex items-center justify-center transition-opacity ${
@@ -1118,10 +1170,12 @@ export default function NgePlayPage() {
 
           {currentTrack && (
             <div className="flex items-center gap-3">
-              <img
+              <TrackCover
                 src={currentTrack.thumbnail}
+                trackId={currentTrack.id}
                 alt={currentTrack.title}
-                className="w-11 h-11 rounded-xl object-cover bg-white border border-black/[0.05] shrink-0"
+                className="w-11 h-11 rounded-xl object-cover border border-black/[0.05] shrink-0"
+                iconClass="w-4 h-4"
               />
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-bold text-[#111827] truncate">{currentTrack.title}</p>
@@ -1336,11 +1390,13 @@ export default function NgePlayPage() {
                         onClick={() => playTrackNow(item, queue)}
                         className="flex items-center gap-2.5 p-1.5 -mx-1.5 rounded-xl hover:bg-white transition-colors cursor-pointer"
                       >
-                        <img
+                        <TrackCover
                           src={item.thumbnail}
+                          trackId={item.id}
                           alt={item.title}
-                          className="w-8 h-8 rounded-lg object-cover bg-white shrink-0"
-                          loading="lazy"
+                          className="w-8 h-8 rounded-lg object-cover shrink-0"
+                          iconClass="w-3.5 h-3.5"
+                          lazy
                         />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-semibold text-[#111827] truncate">{item.title}</p>
@@ -1413,10 +1469,12 @@ export default function NgePlayPage() {
 
       {currentTrack && (
         <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-black/5 px-4 py-2.5 flex items-center gap-3 z-40">
-          <img
+          <TrackCover
             src={currentTrack.thumbnail}
+            trackId={currentTrack.id}
             alt={currentTrack.title}
             className="w-10 h-10 rounded-lg object-cover shrink-0"
+            iconClass="w-4 h-4"
           />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-bold text-[#111827] truncate">{currentTrack.title}</p>

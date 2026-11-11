@@ -47,22 +47,48 @@ export interface LyricsResult extends LyricVariant {
   variants?: LyricVariant[];
 }
 
-const YT_HEADERS = {
+const YTM_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Content-Type": "application/json",
+  Origin: "https://music.youtube.com",
+  Referer: "https://music.youtube.com/",
   "Accept-Language": "en-US,en;q=0.9",
   Cookie: "SOCS=CAI",
 };
 
-// ponytail: regex + ytInitialData parse — upgrade to YouTube Data API v3 only if rate-limited at scale
+const YTM_CONTEXT = {
+  client: {
+    clientName: "WEB_REMIX",
+    clientVersion: "1.20240501.01.00",
+    hl: "en",
+    gl: "ID",
+  },
+};
+
+// ponytail: direct InnerTube WEB_REMIX POST — add visitorData/clientVersion rotation if rate-limited
+async function ytmPost(endpoint: string, body: Record<string, any>): Promise<any | null> {
+  try {
+    const res = await fetch(`https://music.youtube.com/youtubei/v1/${endpoint}?prettyPrint=false`, {
+      method: "POST",
+      headers: YTM_HEADERS,
+      body: JSON.stringify({ context: YTM_CONTEXT, ...body }),
+      cache: "no-store",
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeDuration(raw?: string): string {
-  if (!raw) return "LIVE";
+  if (!raw) return "—";
   return /^\d+(\.\d{2})+$/.test(raw) ? raw.replace(/\./g, ":") : raw;
 }
 
 function extractVideoId(input: string): string | null {
   const match = input.match(
-    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+    /(?:(?:music\.)?youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
   );
   if (match) return match[1];
   if (/^[a-zA-Z0-9_-]{11}$/.test(input.trim())) return input.trim();
@@ -74,14 +100,8 @@ function extractPlaylistId(input: string): string | null {
   return match ? match[1] : null;
 }
 
-async function fetchYtInitialData(url: string): Promise<any | null> {
-  try {
-    const html = await fetch(url, { headers: YT_HEADERS, cache: "no-store" }).then((r) => r.text());
-    const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
-    return match ? JSON.parse(match[1]) : null;
-  } catch {
-    return null;
-  }
+function toYtmListBrowseId(listId: string): string {
+  return listId.startsWith("VL") || listId.startsWith("FE") ? listId : `VL${listId}`;
 }
 
 function walkObject(node: any, visitor: (obj: any) => void) {
@@ -104,30 +124,150 @@ function findBrowseId(node: any): string | undefined {
   return found;
 }
 
-function collectPlaylistTracks(data: any, limit = 30): Track[] {
+function findContinuation(node: any): string | undefined {
+  let found: string | undefined;
+  walkObject(node, (o) => {
+    if (found) return;
+    const tok =
+      o?.nextContinuationData?.continuation ||
+      o?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+    if (typeof tok === "string" && tok) found = tok;
+  });
+  return found;
+}
+
+function extractRunsMeta(runs: any[]) {
+  const artists: string[] = [];
+  let channelId: string | undefined;
+  let fallbackChannel: string | undefined;
+  let duration: string | undefined;
+  let views: string | undefined;
+
+  for (const r of runs) {
+    const text = String(r?.text || "").trim();
+    if (!text || text === "•" || text === "·") continue;
+    if (/^\d+:\d{2}(?::\d{2})?$/.test(text)) {
+      duration = text;
+      continue;
+    }
+    if (/[\d.,]+\s*[kmb]?\s*(?:plays?|views?)/i.test(text)) {
+      views = text;
+      continue;
+    }
+    const browse = r?.navigationEndpoint?.browseEndpoint;
+    const bid = browse?.browseId;
+    const pageType =
+      browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+    if (
+      typeof bid === "string" &&
+      (bid.startsWith("UC") ||
+        pageType === "MUSIC_PAGE_TYPE_ARTIST" ||
+        pageType === "MUSIC_PAGE_TYPE_USER_CHANNEL")
+    ) {
+      artists.push(text);
+      if (!channelId && bid.startsWith("UC")) channelId = bid;
+      continue;
+    }
+    if (
+      !fallbackChannel &&
+      pageType !== "MUSIC_PAGE_TYPE_ALBUM" &&
+      !(typeof bid === "string" && (bid.startsWith("MPRE") || bid.startsWith("VL"))) &&
+      !/^\d{4}$/.test(text) &&
+      !/^(?:song|video|single|ep|album)$/i.test(text)
+    ) {
+      fallbackChannel = text;
+    }
+  }
+
+  return {
+    channel: artists.join(", ") || fallbackChannel || "YouTube Music",
+    channelId,
+    duration,
+    views,
+  };
+}
+
+function ytmThumb(thumbs: any[] | undefined, videoId: string): string {
+  const url = thumbs?.slice(-1)[0]?.url;
+  if (!url) return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  return url.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1");
+}
+
+function parseYtmTracks(data: any, limit = 30): Track[] {
   const seen = new Set<string>();
   const tracks: Track[] = [];
+
   walkObject(data, (o) => {
     if (tracks.length >= limit) return;
-    const p = o?.playlistPanelVideoRenderer || o?.playlistVideoRenderer;
-    if (!p?.videoId || seen.has(p.videoId)) return;
-    seen.add(p.videoId);
-    tracks.push({
-      id: p.videoId,
-      title: p.title?.simpleText || p.title?.runs?.[0]?.text || "Untitled",
-      channel:
-        p.shortBylineText?.runs?.[0]?.text ||
-        p.longBylineText?.runs?.[0]?.text ||
-        "YouTube Music",
-      channelId:
-        findBrowseId(p.shortBylineText) ||
-        findBrowseId(p.longBylineText) ||
-        findBrowseId(p),
-      duration: normalizeDuration(p?.lengthText?.simpleText),
-      thumbnail: `https://i.ytimg.com/vi/${p.videoId}/hqdefault.jpg`,
-    });
+
+    const m = o?.musicResponsiveListItemRenderer;
+    if (m) {
+      const flexCols = m.flexColumns || [];
+      const titleRuns = flexCols[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+      const videoId =
+        m.playlistItemData?.videoId ||
+        titleRuns[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
+        m.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
+          ?.playNavigationEndpoint?.watchEndpoint?.videoId;
+      if (!videoId || seen.has(videoId)) return;
+      seen.add(videoId);
+
+      const subRuns = [
+        ...flexCols
+          .slice(1)
+          .flatMap((c: any) => c?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []),
+        ...(m.fixedColumns || []).flatMap(
+          (c: any) => c?.musicResponsiveListItemFixedColumnRenderer?.text?.runs || []
+        ),
+      ];
+      const meta = extractRunsMeta(subRuns);
+      const thumbs = m.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails;
+      tracks.push({
+        id: videoId,
+        title: titleRuns.map((r: any) => r.text).join("").trim() || "Untitled",
+        channel: meta.channel,
+        channelId: meta.channelId,
+        duration: normalizeDuration(meta.duration),
+        views: meta.views,
+        thumbnail: ytmThumb(thumbs, videoId),
+      });
+      return;
+    }
+
+    const t = o?.musicTwoRowItemRenderer;
+    const twoRowId = t?.navigationEndpoint?.watchEndpoint?.videoId;
+    if (t && twoRowId && !seen.has(twoRowId)) {
+      seen.add(twoRowId);
+      const meta = extractRunsMeta(t.subtitle?.runs || []);
+      const thumbs = t.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails;
+      tracks.push({
+        id: twoRowId,
+        title: (t.title?.runs || []).map((r: any) => r.text).join("").trim() || "Untitled",
+        channel: meta.channel,
+        channelId: meta.channelId,
+        duration: normalizeDuration(meta.duration),
+        views: meta.views,
+        thumbnail: ytmThumb(thumbs, twoRowId),
+      });
+    }
   });
+
   return tracks;
+}
+
+function parseYtmPlaylists(data: any, limit = 8): YouTubePlaylist[] {
+  const seen = new Set<string>();
+  const list: YouTubePlaylist[] = [];
+  walkObject(data, (o) => {
+    if (list.length >= limit) return;
+    const t = o?.musicTwoRowItemRenderer;
+    const id = t?.navigationEndpoint?.browseEndpoint?.browseId;
+    const title = (t?.title?.runs || []).map((r: any) => r.text).join("").trim();
+    if (!id || !title || !id.startsWith("VL") || seen.has(id)) return;
+    seen.add(id);
+    list.push({ id, title });
+  });
+  return list;
 }
 
 export async function fetchYouTubeExplore(playlistId?: string): Promise<{
@@ -136,39 +276,39 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
   activeTitle: string;
   tracks: Track[];
 }> {
-  const channelData = await fetchYtInitialData(
-    "https://www.youtube.com/channel/UC-9-kyTW8ZkZNDHQJ6FgpwQ"
-  );
+  const [homeData, chartsData] = await Promise.all([
+    ytmPost("browse", { browseId: "FEmusic_home" }),
+    ytmPost("browse", { browseId: "FEmusic_charts" }),
+  ]);
 
-  const seenPl = new Set<string>();
-  const playlists: YouTubePlaylist[] = [];
-  walkObject(channelData, (o) => {
-    const l = o?.lockupViewModel;
-    if (l?.contentType !== "LOCKUP_CONTENT_TYPE_PLAYLIST" || !l?.contentId || seenPl.has(l.contentId)) {
-      return;
-    }
-    const title = l.metadata?.lockupMetadataViewModel?.title?.content;
-    if (!title) return;
-    seenPl.add(l.contentId);
-    playlists.push({ id: l.contentId, title });
-  });
+  const playlists: YouTubePlaylist[] = [
+    { id: "FEmusic_home", title: "Quick Picks" },
+    { id: "FEmusic_explore", title: "Trending" },
+  ];
+  const seenPl = new Set(playlists.map((p) => p.id));
+  for (const pl of [...parseYtmPlaylists(chartsData, 6), ...parseYtmPlaylists(homeData, 6)]) {
+    if (seenPl.has(pl.id)) continue;
+    seenPl.add(pl.id);
+    playlists.push(pl);
+    if (playlists.length >= 8) break;
+  }
 
   const selected =
     playlists.find((p) => p.id === playlistId) ||
-    playlists[0] ||
-    (playlistId ? { id: playlistId, title: "YouTube Music" } : null);
+    (playlistId ? { id: playlistId, title: "YouTube Music" } : playlists[0]);
 
-  if (!selected) {
-    return { playlists: [], activePlaylistId: "", activeTitle: "YouTube Music", tracks: [] };
+  let tracks: Track[] = [];
+  if (selected.id === "FEmusic_home" && homeData) {
+    tracks = parseYtmTracks(homeData, 30);
+  }
+  if (!tracks.length) {
+    const browseId = toYtmListBrowseId(selected.id);
+    const data = await ytmPost("browse", { browseId });
+    tracks = parseYtmTracks(data, 40);
   }
 
-  const listData = await fetchYtInitialData(
-    `https://www.youtube.com/watch?list=${encodeURIComponent(selected.id)}`
-  );
-  const tracks = collectPlaylistTracks(listData, 30);
-
   return {
-    playlists: playlists.slice(0, 8),
+    playlists,
     activePlaylistId: selected.id,
     activeTitle: selected.title,
     tracks,
@@ -182,78 +322,65 @@ export async function searchYouTube(query: string): Promise<Track[]> {
   const listId = extractPlaylistId(q);
   const directId = extractVideoId(q);
   if (listId && !directId) {
-    const listData = await fetchYtInitialData(
-      `https://www.youtube.com/watch?list=${encodeURIComponent(listId)}`
-    );
-    const items = collectPlaylistTracks(listData, 30);
+    const listData = await ytmPost("browse", { browseId: toYtmListBrowseId(listId) });
+    const items = parseYtmTracks(listData, 40);
     if (items.length) return items;
   }
 
   if (directId) {
-    try {
-      const oembed = await fetch(
-        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${directId}&format=json`
-      ).then((r) => (r.ok ? r.json() : null));
-
-      const handleMatch = oembed?.author_url?.match(/youtube\.com\/(@[\w.-]+|channel\/(UC[\w-]+))/i);
+    const nxt = await ytmPost("next", { videoId: directId });
+    let pvr: any = null;
+    walkObject(nxt, (o) => {
+      if (!pvr && o?.playlistPanelVideoRenderer?.videoId === directId) {
+        pvr = o.playlistPanelVideoRenderer;
+      }
+    });
+    if (pvr) {
+      const meta = extractRunsMeta(pvr.longBylineText?.runs || pvr.shortBylineText?.runs || []);
       return [
         {
           id: directId,
-          title: oembed?.title || `YouTube Track (${directId})`,
-          channel: oembed?.author_name || "YouTube",
-          channelId: handleMatch ? handleMatch[2] || handleMatch[1] : undefined,
-          duration: "LINK",
-          thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
-        },
-      ];
-    } catch {
-      return [
-        {
-          id: directId,
-          title: `YouTube Track (${directId})`,
-          channel: "YouTube",
-          duration: "LINK",
-          thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+          title:
+            (pvr.title?.runs || []).map((r: any) => r.text).join("").trim() ||
+            `YouTube Music (${directId})`,
+          channel: meta.channel,
+          channelId: meta.channelId || findBrowseId(pvr),
+          duration: normalizeDuration(pvr.lengthText?.runs?.[0]?.text || pvr.lengthText?.simpleText),
+          thumbnail:
+            pvr.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
+            `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
         },
       ];
     }
+    return [
+      {
+        id: directId,
+        title: `YouTube Music (${directId})`,
+        channel: "YouTube Music",
+        duration: "—",
+        thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+      },
+    ];
   }
 
-  const data = await fetchYtInitialData(
-    `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&hl=en`
-  );
-  const contents =
-    data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer
-      ?.contents || [];
+  const songsData = await ytmPost("search", {
+    query: q,
+    params: "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D",
+  });
+  const tracks = parseYtmTracks(songsData, 24);
 
-  const tracks: Track[] = [];
-  for (const section of contents) {
-    const items = section?.itemSectionRenderer?.contents || [];
-    for (const item of items) {
-      const v = item?.videoRenderer;
-      if (!v?.videoId) continue;
-
-      const duration = v?.lengthText?.simpleText;
-      if (!duration) continue;
-
-      tracks.push({
-        id: v.videoId,
-        title: v.title?.runs?.[0]?.text || "Untitled",
-        channel:
-          v.ownerText?.runs?.[0]?.text ||
-          v.longBylineText?.runs?.[0]?.text ||
-          "YouTube",
-        channelId:
-          v.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId ||
-          v.longBylineText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId,
-        duration: normalizeDuration(duration),
-        views: v.shortViewCountText?.simpleText,
-        thumbnail: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-      });
-
+  if (tracks.length < 6) {
+    const videosData = await ytmPost("search", {
+      query: q,
+      params: "EgWKAQIQAWoKEAMQBBAJEAoQBQ%3D%3D",
+    });
+    const seen = new Set(tracks.map((t) => t.id));
+    for (const v of parseYtmTracks(videosData, 24)) {
+      if (seen.has(v.id)) continue;
+      seen.add(v.id);
+      tracks.push(v);
       if (tracks.length >= 24) break;
     }
-    if (tracks.length >= 24) break;
   }
 
   return tracks;
@@ -261,143 +388,66 @@ export async function searchYouTube(query: string): Promise<Track[]> {
 
 export async function resolveChannelFromVideo(videoId: string): Promise<string | null> {
   if (!videoId) return null;
-  try {
-    const html = await fetch(
-      `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`,
-      { headers: YT_HEADERS, cache: "no-store" }
-    ).then((r) => r.text());
-    const direct =
-      html.match(/"externalChannelId":"(UC[\w-]+)"/)?.[1] ||
-      html.match(/"channelId":"(UC[\w-]+)"/)?.[1] ||
-      html.match(/videoOwnerRenderer[\s\S]{0,600}"browseId":"(UC[\w-]+)"/)?.[1];
-    return direct || null;
-  } catch {
-    return null;
-  }
-}
-
-function parseChannelGridItems(items: any[], channelTitle: string, channelId: string) {
-  const seen = new Set<string>();
-  const tracks: Track[] = [];
-  let continuation: string | undefined;
-
-  for (const item of items) {
-    const token = item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
-    if (token) {
-      continuation = token;
-      continue;
-    }
-
-    const lvm = item?.richItemRenderer?.content?.lockupViewModel;
-    if (lvm?.contentId && !seen.has(lvm.contentId)) {
-      const badge =
-        lvm.contentImage?.thumbnailViewModel?.overlays?.[0]?.thumbnailBottomOverlayViewModel
-          ?.badges?.[0]?.thumbnailBadgeViewModel?.text;
-      seen.add(lvm.contentId);
-      const rows = lvm.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel?.metadataRows || [];
-      const views = rows[0]?.metadataParts?.[0]?.text?.content;
-      tracks.push({
-        id: lvm.contentId,
-        title: lvm.metadata?.lockupMetadataViewModel?.title?.content || "Untitled",
-        channel: channelTitle,
-        channelId,
-        duration: normalizeDuration(badge),
-        views,
-        thumbnail: `https://i.ytimg.com/vi/${lvm.contentId}/hqdefault.jpg`,
-      });
-      continue;
-    }
-
-    const v = item?.richItemRenderer?.content?.videoRenderer;
-    if (v?.videoId && !seen.has(v.videoId)) {
-      seen.add(v.videoId);
-      tracks.push({
-        id: v.videoId,
-        title: v.title?.runs?.[0]?.text || "Untitled",
-        channel: channelTitle,
-        channelId,
-        duration: normalizeDuration(v.lengthText?.simpleText),
-        views: v.shortViewCountText?.simpleText,
-        thumbnail: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-      });
-    }
-  }
-
-  return { tracks, continuation };
+  const nxt = await ytmPost("next", { videoId });
+  return findBrowseId(nxt) || null;
 }
 
 export async function fetchYouTubeChannel(
   channelId: string,
   continuation?: string,
-  apiKey?: string,
+  _apiKey?: string,
   knownTitle?: string
 ): Promise<ChannelVideosResult | null> {
   if (!channelId) return null;
 
-  try {
-    if (continuation && apiKey) {
-      const res = await fetch(
-        `https://www.youtube.com/youtubei/v1/browse?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { ...YT_HEADERS, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: { client: { clientName: "WEB", clientVersion: "2.20240501.00.00", hl: "en", gl: "US" } },
-            continuation,
-          }),
-          cache: "no-store",
-        }
-      ).then((r) => r.json());
-
-      const items = res?.onResponseReceivedActions?.[0]?.appendContinuationItemsAction?.continuationItems || [];
-      const parsed = parseChannelGridItems(items, knownTitle || "Channel", channelId);
-      return {
-        channel: { id: channelId, title: knownTitle || "Channel" },
-        tracks: parsed.tracks,
-        continuation: parsed.continuation,
-        apiKey,
-      };
-    }
-
-    const url = channelId.startsWith("@")
-      ? `https://www.youtube.com/${channelId}/videos?hl=en`
-      : `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/videos?hl=en`;
-    const html = await fetch(url, { headers: YT_HEADERS, cache: "no-store" }).then((r) => r.text());
-    const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
-    if (!match) return null;
-
-    const data = JSON.parse(match[1]);
-    const key = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1];
-    const hdr = data?.header?.pageHeaderRenderer?.content?.pageHeaderViewModel;
-    const title =
-      hdr?.title?.dynamicTextViewModel?.text?.content ||
-      data?.metadata?.channelMetadataRenderer?.title ||
-      knownTitle ||
-      "Channel";
-    const resolvedId = data?.metadata?.channelMetadataRenderer?.externalId || channelId;
-    const metaRows = hdr?.metadata?.contentMetadataViewModel?.metadataRows || [];
-    const handle = metaRows[0]?.metadataParts?.[0]?.text?.content;
-    const subscribers = metaRows[1]?.metadataParts?.[0]?.text?.content;
-    const videoCount = metaRows[1]?.metadataParts?.[1]?.text?.content;
-    const avatar =
-      hdr?.image?.decoratedAvatarViewModel?.avatar?.avatarViewModel?.image?.sources?.slice(-1)[0]?.url ||
-      data?.metadata?.channelMetadataRenderer?.avatar?.thumbnails?.slice(-1)[0]?.url;
-
-    const tab = (data?.contents?.twoColumnBrowseResultsRenderer?.tabs || []).find(
-      (t: any) => t.tabRenderer?.selected
-    )?.tabRenderer;
-    const items = tab?.content?.richGridRenderer?.contents || [];
-    const parsed = parseChannelGridItems(items, title, resolvedId);
-
+  if (continuation) {
+    const res = continuation.startsWith("VL")
+      ? await ytmPost("browse", { browseId: continuation })
+      : await ytmPost("browse", { continuation });
+    if (!res) return null;
     return {
-      channel: { id: resolvedId, title, handle, avatar, subscribers, videoCount },
-      tracks: parsed.tracks,
-      continuation: parsed.continuation,
-      apiKey: key,
+      channel: { id: channelId, title: knownTitle || "Artist" },
+      tracks: parseYtmTracks(res, 60),
+      continuation: findContinuation(res),
     };
-  } catch {
-    return null;
   }
+
+  let resolvedId = channelId;
+  if (channelId.startsWith("@")) {
+    const artistSearch = await ytmPost("search", {
+      query: channelId,
+      params: "EgWKAQIgAWoKEAMQBBAJEAoQBQ%3D%3D",
+    });
+    const foundId = findBrowseId(artistSearch);
+    if (!foundId) return null;
+    resolvedId = foundId;
+  }
+
+  const data = await ytmPost("browse", { browseId: resolvedId });
+  if (!data) return null;
+
+  const hdr =
+    data?.header?.musicImmersiveHeaderRenderer ||
+    data?.header?.musicVisualHeaderRenderer ||
+    data?.header?.musicDetailHeaderRenderer;
+  const title = hdr?.title?.runs?.[0]?.text || knownTitle || "Artist";
+  const avatar = hdr?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url;
+  const subscribers =
+    hdr?.subscriptionButton?.subscribeButtonRenderer?.subscriberCountText?.runs?.[0]?.text;
+  const videoCount = hdr?.monthlyListenerCount?.runs?.[0]?.text;
+
+  let seeAllBrowseId: string | undefined;
+  walkObject(data, (o) => {
+    if (seeAllBrowseId) return;
+    const id = o?.musicShelfRenderer?.bottomEndpoint?.browseEndpoint?.browseId;
+    if (typeof id === "string" && id.startsWith("VL")) seeAllBrowseId = id;
+  });
+
+  return {
+    channel: { id: resolvedId, title, avatar, subscribers, videoCount },
+    tracks: parseYtmTracks(data, 40),
+    continuation: seeAllBrowseId || findContinuation(data),
+  };
 }
 
 function cleanQueryPart(s: string) {
