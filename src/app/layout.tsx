@@ -23,8 +23,8 @@ const bricolage = Bricolage_Grotesque({
 export function generateMetadata(): Metadata {
   return {
     title: {
-      default: "nge-play — Ad-Free YouTube Music Player",
-      template: "%s — nge-play",
+      default: "Nge-Play",
+      template: "%s — Nge-Play",
     },
     description:
       "A simple, ad-free YouTube Music web player. Search, explore, view synced lyrics, and listen directly from YouTube.",
