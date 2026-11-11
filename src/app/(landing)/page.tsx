@@ -20,6 +20,8 @@ import {
   ArrowLeft,
   X,
   Music,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import {
   fetchTrackLyrics,
@@ -179,10 +181,12 @@ export default function NgePlayPage() {
 
   const [lyrics, setLyrics] = useState<LyricsResult | null>(null);
   const [loadingLyrics, setLoadingLyrics] = useState(false);
-  const [lyricOffset, setLyricOffset] = useState(0);
   const [lyricVariantIdx, setLyricVariantIdx] = useState(0);
+  const [lyricsModalOpen, setLyricsModalOpen] = useState(false);
   const lyricsBoxRef = useRef<HTMLDivElement | null>(null);
   const activeLyricRef = useRef<HTMLButtonElement | null>(null);
+  const lyricsModalBoxRef = useRef<HTMLDivElement | null>(null);
+  const activeModalLyricRef = useRef<HTMLButtonElement | null>(null);
 
   const [queue, setQueue] = useState<Track[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -198,7 +202,11 @@ export default function NgePlayPage() {
   const [repeat, setRepeat] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+  const [videoWidth, setVideoWidth] = useState(560);
+  const [videoPos, setVideoPos] = useState<{ x: number; y: number } | null>(null);
+  const [videoFullscreen, setVideoFullscreen] = useState(false);
 
+  const videoCardRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<any>(null);
   const readyRef = useRef(false);
   const hydratedRef = useRef(false);
@@ -214,6 +222,7 @@ export default function NgePlayPage() {
     repeat,
     shuffle,
     showVideo,
+    videoWidth,
     tab,
   });
 
@@ -228,9 +237,10 @@ export default function NgePlayPage() {
       repeat,
       shuffle,
       showVideo,
+      videoWidth,
       tab,
     };
-  }, [queue, currentIndex, currentTime, isPlaying, volume, muted, repeat, shuffle, showVideo, tab]);
+  }, [queue, currentIndex, currentTime, isPlaying, volume, muted, repeat, shuffle, showVideo, videoWidth, tab]);
 
   function skey(base: string, uid = userKeyRef.current) {
     return `ngeplay_${base}_${uid}`;
@@ -253,6 +263,7 @@ export default function NgePlayPage() {
           repeat: s.repeat,
           shuffle: s.shuffle,
           showVideo: s.showVideo,
+          videoWidth: s.videoWidth,
           tab: s.tab === "channel" ? "explore" : s.tab,
         })
       );
@@ -288,6 +299,11 @@ export default function NgePlayPage() {
           if (typeof s.repeat === "boolean") setRepeat(s.repeat);
           if (typeof s.shuffle === "boolean") setShuffle(s.shuffle);
           if (typeof s.showVideo === "boolean") setShowVideo(s.showVideo);
+          if (typeof s.videoWidth === "number" && Number.isFinite(s.videoWidth)) {
+            setVideoWidth(Math.min(1200, Math.max(320, Math.round(s.videoWidth))));
+          } else if (typeof s.videoZoom === "number" && Number.isFinite(s.videoZoom)) {
+            setVideoWidth(Math.min(1200, Math.max(320, Math.round(320 * s.videoZoom))));
+          }
           if (s.tab && s.tab !== "channel") setTab(s.tab);
           pendingResumeRef.current = {
             videoId: s.queue[idx].id,
@@ -356,8 +372,8 @@ export default function NgePlayPage() {
     const init = () => {
       if (playerRef.current || !window.YT?.Player) return;
       playerRef.current = new window.YT.Player("yt-audio-player", {
-        height: "180",
-        width: "320",
+        height: "100%",
+        width: "100%",
         videoId: trackId,
         host: "https://www.youtube-nocookie.com",
         playerVars: {
@@ -437,7 +453,92 @@ export default function NgePlayPage() {
 
   useEffect(() => {
     saveSession();
-  }, [queue, currentIndex, isPlaying, volume, muted, repeat, shuffle, showVideo, tab]);
+  }, [queue, currentIndex, isPlaying, volume, muted, repeat, shuffle, showVideo, videoWidth, tab]);
+
+  function startVideoDrag(e: React.PointerEvent) {
+    if (videoFullscreen || e.button !== 0 || !videoCardRef.current) return;
+    e.preventDefault();
+    const rect = videoCardRef.current.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = rect.left;
+    const origY = rect.top;
+
+    const onMove = (ev: PointerEvent) => {
+      const maxX = Math.max(12, window.innerWidth - rect.width - 12);
+      const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+      setVideoPos({
+        x: Math.min(maxX, Math.max(12, origX + ev.clientX - startX)),
+        y: Math.min(maxY, Math.max(12, origY + ev.clientY - startY)),
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  function startVideoResize(e: React.PointerEvent, dir: "left" | "right" | "corner") {
+    if (e.button !== 0 || !videoCardRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = videoCardRef.current.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origWidth = rect.width;
+    const origX = rect.left;
+    const origY = rect.top;
+    const maxW = Math.min(1200, window.innerWidth - 24);
+
+    if (videoPos === null) {
+      setVideoPos({ x: origX, y: origY });
+    }
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (dir === "left") {
+        const maxLeftW = Math.min(maxW, origX + origWidth - 12);
+        const nextW = Math.min(maxLeftW, Math.max(320, Math.round(origWidth - dx)));
+        setVideoWidth(nextW);
+        setVideoPos((p) => ({ x: origX + origWidth - nextW, y: p?.y ?? origY }));
+      } else {
+        const delta = dir === "corner" ? Math.max(dx, dy * (16 / 9)) : dx;
+        const maxRightW = Math.min(maxW, window.innerWidth - origX - 12);
+        setVideoWidth(Math.min(maxRightW, Math.max(320, Math.round(origWidth + delta))));
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  function toggleVideoFullscreen() {
+    const el = videoCardRef.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) {
+      document.exitFullscreen?.().catch(() => {});
+    } else {
+      el.requestFullscreen?.().catch(() => {});
+    }
+  }
+
+  useEffect(() => {
+    const onFs = () => setVideoFullscreen(document.fullscreenElement === videoCardRef.current);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  useEffect(() => {
+    if (!showVideo && document.fullscreenElement === videoCardRef.current) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }, [showVideo]);
 
   useEffect(() => {
     const flush = () => {
@@ -456,31 +557,6 @@ export default function NgePlayPage() {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
-
-  function readSavedOffset(trackId: string): number {
-    try {
-      const raw = localStorage.getItem(skey("lyric_offsets"));
-      const map = raw ? JSON.parse(raw) : null;
-      const v = map?.[trackId];
-      return typeof v === "number" && Number.isFinite(v) ? v : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  function updateLyricOffset(nextVal: number) {
-    const val = Number(nextVal.toFixed(2));
-    setLyricOffset(val);
-    const tid = currentTrack?.id;
-    if (!tid) return;
-    try {
-      const raw = localStorage.getItem(skey("lyric_offsets"));
-      const map = raw ? JSON.parse(raw) : {};
-      if (val === 0) delete map[tid];
-      else map[tid] = val;
-      localStorage.setItem(skey("lyric_offsets"), JSON.stringify(map));
-    } catch {}
-  }
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -538,11 +614,6 @@ export default function NgePlayPage() {
     return () => clearInterval(t);
   }, [isPlaying]);
 
-  useEffect(() => {
-    if (!currentTrack?.id) return;
-    setLyricOffset(readSavedOffset(currentTrack.id));
-  }, [currentTrack?.id, authLoaded]);
-
   const parsedTrackDur = currentTrack ? parseDurationSec(currentTrack.duration) : 0;
   const lyricsDurKey = parsedTrackDur > 0 ? parsedTrackDur : Math.round(duration);
 
@@ -568,7 +639,7 @@ export default function NgePlayPage() {
   const activeLyrics = lyrics?.variants?.[lyricVariantIdx] || lyrics;
   const activeLyricIndex = activeLyrics?.synced.length
     ? activeLyrics.synced.reduce(
-        (acc, line, idx) => (line.time <= currentTime + LYRIC_LEAD_SEC + lyricOffset ? idx : acc),
+        (acc, line, idx) => (line.time <= currentTime + LYRIC_LEAD_SEC ? idx : acc),
         -1
       )
     : -1;
@@ -583,6 +654,26 @@ export default function NgePlayPage() {
       });
     }
   }, [activeLyricIndex, panelTab]);
+
+  useEffect(() => {
+    const box = lyricsModalBoxRef.current;
+    const el = activeModalLyricRef.current;
+    if (lyricsModalOpen && box && el) {
+      box.scrollTo({
+        top: Math.max(0, el.offsetTop - box.clientHeight * 0.38),
+        behavior: "smooth",
+      });
+    }
+  }, [activeLyricIndex, lyricsModalOpen]);
+
+  useEffect(() => {
+    if (!lyricsModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLyricsModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lyricsModalOpen]);
 
   function playTrackAt(index: number, list = queue) {
     const track = list[index];
@@ -1295,9 +1386,9 @@ export default function NgePlayPage() {
                   </button>
                 ))}
               </div>
-              {panelTab === "lyrics" && activeLyrics?.synced.length ? (
+              {panelTab === "lyrics" && currentTrack ? (
                 <div className="flex items-center gap-1 text-[10px] font-semibold text-[#6B7280] tabular-nums">
-                  {lyrics?.variants && lyrics.variants.length > 1 ? (
+                  {activeLyrics?.synced.length && lyrics?.variants && lyrics.variants.length > 1 ? (
                     <button
                       onClick={() => setLyricVariantIdx((i) => (i + 1) % lyrics.variants!.length)}
                       title="Switch lyric timing version"
@@ -1307,27 +1398,11 @@ export default function NgePlayPage() {
                     </button>
                   ) : null}
                   <button
-                    onClick={() => updateLyricOffset(lyricOffset - 0.25)}
-                    title="Delay lyrics (-0.25s)"
-                    className="px-1.5 py-0.5 rounded bg-white border border-black/[0.05] hover:text-[#111827] cursor-pointer"
+                    onClick={() => setLyricsModalOpen(true)}
+                    title="Expand lyrics"
+                    className="p-1 rounded bg-white border border-black/[0.05] text-[#6B7280] hover:text-[#D9383A] hover:bg-[#FCEAEA] transition-colors cursor-pointer"
                   >
-                    -0.25s
-                  </button>
-                  <button
-                    onClick={() => updateLyricOffset(0)}
-                    title="Reset lyric sync"
-                    className={`px-1 py-0.5 rounded cursor-pointer ${
-                      lyricOffset !== 0 ? "text-[#D9383A]" : "text-[#9CA3AF]"
-                    }`}
-                  >
-                    {lyricOffset > 0 ? `+${lyricOffset}s` : `${lyricOffset}s`}
-                  </button>
-                  <button
-                    onClick={() => updateLyricOffset(lyricOffset + 0.25)}
-                    title="Advance lyrics (+0.25s)"
-                    className="px-1.5 py-0.5 rounded bg-white border border-black/[0.05] hover:text-[#111827] cursor-pointer"
-                  >
-                    +0.25s
+                    <Maximize2 className="w-3 h-3" />
                   </button>
                 </div>
               ) : null}
@@ -1337,7 +1412,7 @@ export default function NgePlayPage() {
               <div
                 ref={lyricsBoxRef}
                 translate="no"
-                className="notranslate relative bg-white rounded-2xl p-3 border border-black/[0.04] max-h-56 overflow-y-auto space-y-1.5"
+                className="notranslate relative bg-white rounded-2xl p-3 border border-black/[0.04] max-h-56 overflow-y-auto overflow-x-hidden space-y-1.5"
               >
                 {loadingLyrics ? (
                   <div className="flex items-center gap-2 text-xs text-[#6B7280] py-6 justify-center">
@@ -1347,18 +1422,34 @@ export default function NgePlayPage() {
                 ) : activeLyrics?.synced.length ? (
                   activeLyrics.synced.map((line, i) => {
                     const active = i === activeLyricIndex;
+                    const past = activeLyricIndex !== -1 && i < activeLyricIndex;
                     return (
                       <button
                         key={`${line.time}-${i}`}
                         ref={active ? activeLyricRef : null}
-                        onClick={() => handleSeek(Math.max(0, line.time - lyricOffset))}
-                        className={`w-full text-left text-xs leading-relaxed px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                        onClick={() => handleSeek(Math.max(0, line.time))}
+                        className={`w-full text-left text-xs leading-relaxed px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
                           active
-                            ? "bg-[#FDF0F0] text-[#D9383A] font-bold"
-                            : "text-[#6B7280] hover:text-[#111827]"
+                            ? "bg-[#FDF0F0] text-[#D9383A] font-semibold"
+                            : past
+                            ? "text-[#9CA3AF] opacity-45 hover:opacity-85"
+                            : "text-[#374151] opacity-75 hover:opacity-100"
                         }`}
                       >
-                        {line.text}
+                        <span
+                          className={`w-[3px] rounded-full transition-all duration-300 shrink-0 ${
+                            active
+                              ? `h-4 bg-[#EE3B3B] ${isPlaying ? "animate-pulse" : ""}`
+                              : "h-1.5 bg-transparent"
+                          }`}
+                        />
+                        <span
+                          className={`flex-1 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] origin-left ${
+                            active ? "translate-x-0.5 scale-[1.02]" : ""
+                          }`}
+                        >
+                          {line.text}
+                        </span>
                       </button>
                     );
                   })
@@ -1458,14 +1549,391 @@ export default function NgePlayPage() {
       </div>
 
       <div
-        className={`fixed right-5 bottom-20 lg:bottom-6 z-30 rounded-2xl overflow-hidden border border-black/10 shadow-xl bg-black transition-all ${
+        ref={videoCardRef}
+        style={
+          showVideo && !videoFullscreen
+            ? {
+                width: `${videoWidth}px`,
+                maxWidth: "calc(100vw - 24px)",
+                maxHeight: "calc(100vh - 24px)",
+                ...(videoPos
+                  ? { left: `${videoPos.x}px`, top: `${videoPos.y}px` }
+                  : { left: "50%", top: "50%", transform: "translate(-50%, -50%)" }),
+              }
+            : undefined
+        }
+        className={`fixed z-40 overflow-hidden bg-white flex flex-col transition-opacity duration-200 ${
+          videoFullscreen
+            ? "inset-0 w-screen h-screen rounded-none border-0 shadow-none"
+            : "rounded-[24px] border border-black/[0.06] shadow-2xl"
+        } ${
           showVideo
-            ? "opacity-100 pointer-events-auto scale-100"
-            : "opacity-0 pointer-events-none w-px h-px overflow-hidden"
+            ? "opacity-100 pointer-events-auto"
+            : "right-3 bottom-20 opacity-0 pointer-events-none w-px h-px"
         }`}
       >
-        <div id="yt-audio-player" />
+        <div
+          onPointerDown={startVideoDrag}
+          style={{ touchAction: "none" }}
+          className={
+            showVideo
+              ? `flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-black/[0.05] bg-white select-none shrink-0 ${
+                  videoFullscreen ? "" : "cursor-grab active:cursor-grabbing"
+                }`
+              : "hidden"
+          }
+        >
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            {currentTrack && (
+              <TrackCover
+                src={currentTrack.thumbnail}
+                trackId={currentTrack.id}
+                alt={currentTrack.title}
+                className="w-9 h-9 rounded-xl object-cover border border-black/[0.05] shrink-0"
+                iconClass="w-3.5 h-3.5"
+              />
+            )}
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm font-bold text-[#111827] truncate">
+                {currentTrack?.title || "Now Playing"}
+              </p>
+              {currentTrack?.channel && (
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => openChannel(currentTrack, e)}
+                  className="text-[11px] text-[#6B7280] hover:text-[#D9383A] truncate block text-left cursor-pointer"
+                >
+                  {currentTrack.channel}
+                </button>
+              )}
+            </div>
+          </div>
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 shrink-0"
+          >
+            <button
+              onClick={toggleVideoFullscreen}
+              title={videoFullscreen ? "Exit fullscreen" : "Fullscreen"}
+              className="p-1.5 rounded-xl bg-[#F8F9FB] hover:bg-[#EFEFEF] text-[#4B5563] hover:text-[#111827] transition-colors cursor-pointer"
+            >
+              {videoFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => setShowVideo(false)}
+              title="Close video"
+              className="p-1.5 rounded-xl bg-[#F8F9FB] hover:bg-[#FCEAEA] text-[#6B7280] hover:text-[#D9383A] transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <div
+          onClick={() => showVideo && togglePlay()}
+          className={
+            showVideo
+              ? videoFullscreen
+                ? "relative w-full flex-1 min-h-0 bg-black overflow-hidden cursor-pointer group"
+                : "relative w-full aspect-video max-h-[calc(100vh-190px)] bg-black overflow-hidden cursor-pointer group shrink-0"
+              : ""
+          }
+        >
+          <div
+            className={
+              showVideo
+                ? "absolute inset-0 pointer-events-none [&>iframe]:block [&>iframe]:w-full [&>iframe]:h-full"
+                : "w-[320px] h-[180px]"
+            }
+          >
+            <div id="yt-audio-player" />
+          </div>
+          {showVideo && (
+            <div
+              className={`absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity ${
+                isPlaying ? "opacity-0 group-hover:opacity-100" : "opacity-100"
+              }`}
+            >
+              <span className="w-11 h-11 rounded-full bg-black/55 backdrop-blur-sm text-white flex items-center justify-center shadow-lg">
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div
+          className={
+            showVideo
+              ? "relative px-4 sm:px-5 py-2.5 bg-[#F8F9FB] border-t border-black/[0.05] space-y-2 shrink-0"
+              : "hidden"
+          }
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-semibold text-[#9CA3AF] tabular-nums w-9">
+              {formatTime(currentTime)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={duration || 100}
+              value={Math.min(currentTime, duration || 100)}
+              onChange={(e) => handleSeek(Number(e.target.value))}
+              className="flex-1 h-1.5 bg-[#EDEDED] accent-[#EE3B3B] rounded-lg cursor-pointer"
+            />
+            <span className="text-[11px] font-semibold text-[#9CA3AF] tabular-nums w-9 text-right">
+              {formatTime(duration)}
+            </span>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => setShuffle((s) => !s)}
+              title="Shuffle"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                shuffle ? "text-[#D9383A] bg-[#FCEAEA]" : "text-[#9CA3AF] hover:text-[#111827]"
+              }`}
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handlePrev}
+              title="Previous"
+              className="p-1.5 text-[#111827] hover:text-[#EE3B3B] transition-colors cursor-pointer"
+            >
+              <SkipBack className="w-3.5 h-3.5 fill-current" />
+            </button>
+            <button
+              onClick={togglePlay}
+              title={isPlaying ? "Pause" : "Play"}
+              className="w-8 h-8 rounded-full bg-[#EE3B3B] hover:bg-[#DC2F2F] text-white flex items-center justify-center shadow-sm shadow-[#EE3B3B]/30 cursor-pointer"
+            >
+              {isPlaying ? (
+                <Pause className="w-3.5 h-3.5 fill-current" />
+              ) : (
+                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+              )}
+            </button>
+            <button
+              onClick={handleNext}
+              title="Next"
+              className="p-1.5 text-[#111827] hover:text-[#EE3B3B] transition-colors cursor-pointer"
+            >
+              <SkipForward className="w-3.5 h-3.5 fill-current" />
+            </button>
+            <button
+              onClick={() => setRepeat((r) => !r)}
+              title="Repeat"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                repeat ? "text-[#D9383A] bg-[#FCEAEA]" : "text-[#9CA3AF] hover:text-[#111827]"
+              }`}
+            >
+              <Repeat className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {showVideo && !videoFullscreen && (
+          <>
+            <div
+              onPointerDown={(e) => startVideoResize(e, "left")}
+              style={{ touchAction: "none" }}
+              title="Drag kiri untuk lebarkan"
+              className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-[#EE3B3B]/20 transition-colors"
+            />
+            <div
+              onPointerDown={(e) => startVideoResize(e, "right")}
+              style={{ touchAction: "none" }}
+              title="Drag kanan untuk lebarkan"
+              className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-[#EE3B3B]/20 transition-colors"
+            />
+            <div
+              onPointerDown={(e) => startVideoResize(e, "corner")}
+              style={{ touchAction: "none" }}
+              title="Drag sudut untuk ubah ukuran"
+              className="absolute bottom-1 right-1 w-4 h-4 cursor-nwse-resize flex items-end justify-end p-0.5 group"
+            >
+              <span className="w-2.5 h-2.5 border-r-2 border-b-2 border-[#9CA3AF]/60 group-hover:border-[#EE3B3B] rounded-br-[2px]" />
+            </div>
+          </>
+        )}
       </div>
+
+      {lyricsModalOpen && currentTrack && (
+        <div
+          onClick={() => setLyricsModalOpen(false)}
+          className="fixed inset-0 z-50 bg-black/45 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-4xl max-h-[85vh] bg-white rounded-[28px] shadow-2xl border border-black/[0.06] flex flex-col overflow-hidden"
+          >
+            <div className="flex items-center justify-between gap-3 px-5 sm:px-7 py-4 border-b border-black/[0.05] shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <TrackCover
+                  src={currentTrack.thumbnail}
+                  trackId={currentTrack.id}
+                  alt={currentTrack.title}
+                  className="w-11 h-11 rounded-xl object-cover border border-black/[0.05] shrink-0"
+                  iconClass="w-4 h-4"
+                />
+                <div className="min-w-0">
+                  <p className="text-sm sm:text-base font-bold text-[#111827] truncate">
+                    {currentTrack.title}
+                  </p>
+                  <button
+                    onClick={(e) => {
+                      openChannel(currentTrack, e);
+                      setLyricsModalOpen(false);
+                    }}
+                    className="text-xs text-[#6B7280] hover:text-[#D9383A] truncate block text-left cursor-pointer"
+                  >
+                    {currentTrack.channel}
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0 text-[11px] font-semibold text-[#6B7280] tabular-nums">
+                {activeLyrics?.synced.length && lyrics?.variants && lyrics.variants.length > 1 ? (
+                  <button
+                    onClick={() => setLyricVariantIdx((i) => (i + 1) % lyrics.variants!.length)}
+                    title="Switch lyric timing version"
+                    className="px-2 py-1 rounded-lg bg-[#F8F9FB] border border-black/[0.05] text-[#D9383A] hover:bg-[#FCEAEA] cursor-pointer"
+                  >
+                    v{lyricVariantIdx + 1}/{lyrics.variants.length}
+                  </button>
+                ) : null}
+                <button
+                  onClick={() => setLyricsModalOpen(false)}
+                  title="Close lyrics"
+                  className="p-1.5 rounded-xl bg-[#F8F9FB] hover:bg-[#FCEAEA] text-[#6B7280] hover:text-[#D9383A] transition-colors ml-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div
+              ref={lyricsModalBoxRef}
+              translate="no"
+              className="notranslate relative flex-1 overflow-y-auto overflow-x-hidden px-5 sm:px-7 py-8 space-y-1.5"
+            >
+              {loadingLyrics ? (
+                <div className="flex items-center gap-2 text-sm text-[#6B7280] py-20 justify-center">
+                  <Loader2 className="w-4 h-4 animate-spin text-[#EE3B3B]" />
+                  <span>Finding lyrics...</span>
+                </div>
+              ) : activeLyrics?.synced.length ? (
+                activeLyrics.synced.map((line, i) => {
+                  const active = i === activeLyricIndex;
+                  const past = activeLyricIndex !== -1 && i < activeLyricIndex;
+                  return (
+                    <button
+                      key={`modal-${line.time}-${i}`}
+                      ref={active ? activeModalLyricRef : null}
+                      onClick={() => handleSeek(Math.max(0, line.time))}
+                      className={`w-full text-left text-[15px] sm:text-lg leading-snug font-semibold px-3.5 py-2 rounded-2xl flex items-center gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
+                        active
+                          ? "bg-[#FDF0F0] text-[#D9383A] shadow-[0_6px_20px_rgba(238,59,59,0.08)]"
+                          : past
+                          ? "text-[#9CA3AF] opacity-40 blur-[0.3px] hover:opacity-85 hover:blur-none"
+                          : "text-[#374151] opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      <span
+                        className={`w-1 rounded-full transition-all duration-300 shrink-0 ${
+                          active
+                            ? `h-5 bg-[#EE3B3B] ${isPlaying ? "animate-pulse" : ""}`
+                            : "h-1.5 bg-transparent"
+                        }`}
+                      />
+                      <span
+                        className={`flex-1 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] origin-left ${
+                          active ? "translate-x-1 scale-[1.02]" : ""
+                        }`}
+                      >
+                        {line.text}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : activeLyrics?.plain ? (
+                <pre className="text-sm sm:text-base text-[#374151] whitespace-pre-wrap font-sans leading-relaxed">
+                  {activeLyrics.plain}
+                </pre>
+              ) : (
+                <p className="text-sm text-[#9CA3AF] text-center py-20">
+                  Lyrics unavailable for this track.
+                </p>
+              )}
+            </div>
+
+            <div className="px-5 sm:px-7 py-3.5 bg-[#F8F9FB] border-t border-black/[0.05] space-y-2.5 shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-semibold text-[#9CA3AF] tabular-nums w-9">
+                  {formatTime(currentTime)}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 100}
+                  value={Math.min(currentTime, duration || 100)}
+                  onChange={(e) => handleSeek(Number(e.target.value))}
+                  className="flex-1 h-1.5 bg-[#EDEDED] accent-[#EE3B3B] rounded-lg cursor-pointer"
+                />
+                <span className="text-[11px] font-semibold text-[#9CA3AF] tabular-nums w-9 text-right">
+                  {formatTime(duration)}
+                </span>
+              </div>
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  onClick={() => setShuffle((s) => !s)}
+                  title="Shuffle"
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                    shuffle ? "text-[#D9383A] bg-[#FCEAEA]" : "text-[#9CA3AF] hover:text-[#111827]"
+                  }`}
+                >
+                  <Shuffle className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handlePrev}
+                  title="Previous"
+                  className="p-1.5 text-[#111827] hover:text-[#EE3B3B] transition-colors cursor-pointer"
+                >
+                  <SkipBack className="w-4 h-4 fill-current" />
+                </button>
+                <button
+                  onClick={togglePlay}
+                  title={isPlaying ? "Pause" : "Play"}
+                  className="w-10 h-10 rounded-full bg-[#EE3B3B] hover:bg-[#DC2F2F] text-white flex items-center justify-center shadow-sm shadow-[#EE3B3B]/30 cursor-pointer"
+                >
+                  {isPlaying ? (
+                    <Pause className="w-4 h-4 fill-current" />
+                  ) : (
+                    <Play className="w-4 h-4 fill-current ml-0.5" />
+                  )}
+                </button>
+                <button
+                  onClick={handleNext}
+                  title="Next"
+                  className="p-1.5 text-[#111827] hover:text-[#EE3B3B] transition-colors cursor-pointer"
+                >
+                  <SkipForward className="w-4 h-4 fill-current" />
+                </button>
+                <button
+                  onClick={() => setRepeat((r) => !r)}
+                  title="Repeat"
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                    repeat ? "text-[#D9383A] bg-[#FCEAEA]" : "text-[#9CA3AF] hover:text-[#111827]"
+                  }`}
+                >
+                  <Repeat className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {currentTrack && (
         <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-black/5 px-4 py-2.5 flex items-center gap-3 z-40">
