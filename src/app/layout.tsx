@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Outfit, Bricolage_Grotesque } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import NextTopLoader from "nextjs-toploader";
 import { Toaster } from "sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { PwaRegister } from "@/components/pwa/pwa-install";
 import "@/app/globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -10,15 +10,12 @@ const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-plus-jakarta",
 });
 
-const outfit = Outfit({
-  subsets: ["latin"],
-  variable: "--font-outfit",
-});
-
-const bricolage = Bricolage_Grotesque({
-  subsets: ["latin"],
-  variable: "--font-bricolage",
-});
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FFFFFF" },
+    { media: "(prefers-color-scheme: dark)", color: "#0D0F14" },
+  ],
+};
 
 export function generateMetadata(): Metadata {
   return {
@@ -28,6 +25,15 @@ export function generateMetadata(): Metadata {
     },
     description:
       "A simple, ad-free YouTube Music web player. Search, explore, view synced lyrics, and listen directly from YouTube.",
+    applicationName: "Nge-Play",
+    appleWebApp: {
+      capable: true,
+      title: "Nge-Play",
+      statusBarStyle: "default",
+    },
+    formatDetection: {
+      telephone: false,
+    },
   };
 }
 
@@ -37,13 +43,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${plusJakartaSans.variable} ${outfit.variable} ${bricolage.variable}`}
-    >
+    <html lang="en" className={plusJakartaSans.variable}>
       <body className="antialiased font-sans min-h-screen bg-white text-[#18181B]">
+        <PwaRegister />
         <NextTopLoader showSpinner={false} color="#FFD014" />
-        <TooltipProvider>{children}</TooltipProvider>
+        {children}
         <Toaster position="top-center" theme="light" richColors />
       </body>
     </html>

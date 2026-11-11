@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MoreHorizontal, MoreVertical, Pause, Play } from "lucide-react";
-import type { AlbumSummary, ArtistSummary, Track } from "@/components/landing/hero";
-import { TrackCover } from "@/components/landing/track-cover";
+import { MoreVertical, Pause, Play } from "lucide-react";
+import type { AlbumSummary, ArtistSummary, Track } from "@/actions/youtube";
+import { TrackCover } from "@/components/library/track-cover";
 
 interface HomeDashboardProps {
   loading: boolean;
@@ -65,7 +65,6 @@ export function HomeDashboard({
   }, [heroAlbums.length]);
 
   const topTrending = trending.slice(0, 4);
-  const trendingHasCurrent = topTrending.some((t) => t.id === currentTrack?.id);
   const topRecent = recentTracks.slice(0, 6);
   const topArtists = artists.slice(0, 4);
 
@@ -157,9 +156,8 @@ export function HomeDashboard({
               />
             ))
           ) : (
-            topTrending.map((track, idx) => {
+            topTrending.map((track) => {
               const isCurrent = currentTrack?.id === track.id;
-              const isHighlighted = isCurrent || (!trendingHasCurrent && idx === 0);
               return (
                 <div
                   key={track.id}
@@ -179,7 +177,13 @@ export function HomeDashboard({
                   </button>
 
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-bold text-[#18181B] dark:text-[#F4F5F7] truncate">
+                    <p
+                      className={`text-[13px] font-bold truncate ${
+                        isCurrent
+                          ? "text-[#D97706] dark:text-[#FFD014]"
+                          : "text-[#18181B] dark:text-[#F4F5F7]"
+                      }`}
+                    >
                       {track.title}
                     </p>
                     <button
@@ -199,11 +203,7 @@ export function HomeDashboard({
                     type="button"
                     aria-label="Track options"
                     onClick={(e) => onOpenMenu(track, e)}
-                    className={
-                      isHighlighted
-                        ? "bg-[#0B111B] hover:bg-[#1E293B] dark:bg-[#FFD014] dark:hover:bg-[#F5C400] text-white dark:text-[#18181B] w-9 self-stretch -my-3 -mr-3 ml-1 flex items-center justify-center rounded-l-xl rounded-r-[18px] transition-colors cursor-pointer shrink-0"
-                        : "p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg transition-colors cursor-pointer shrink-0"
-                    }
+                    className="p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg transition-colors cursor-pointer shrink-0"
                   >
                     <MoreVertical className="w-4 h-4" />
                   </button>
@@ -326,22 +326,19 @@ export function HomeDashboard({
               <div
                 key={artist.id}
                 onClick={(e) => onOpenArtist(artist, e)}
-                className="flex items-center justify-between gap-3 p-2 -mx-2 rounded-2xl hover:bg-[#F7F8FA] dark:hover:bg-[#161922] transition-colors cursor-pointer group"
+                className="flex items-center gap-3.5 p-2 -mx-2 rounded-2xl hover:bg-[#F7F8FA] dark:hover:bg-[#161922] transition-colors cursor-pointer group"
               >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-11 h-11 rounded-full overflow-hidden bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0 border border-black/[0.04] dark:border-white/[0.08]">
-                    <TrackCover src={artist.avatar} alt={artist.name} iconClass="w-4 h-4" lazy />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-bold text-[#18181B] dark:text-[#F4F5F7] truncate">
-                      {artist.name}
-                    </p>
-                    <p className="text-xs text-[#9CA3AF] truncate">
-                      {artist.subscribers || "YouTube Music Artist"}
-                    </p>
-                  </div>
+                <div className="w-11 h-11 rounded-full overflow-hidden bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0 border border-black/[0.04] dark:border-white/[0.08]">
+                  <TrackCover src={artist.avatar} alt={artist.name} iconClass="w-4 h-4" lazy />
                 </div>
-                <MoreHorizontal className="w-4 h-4 text-[#B0B7C3] dark:text-[#6B7280] group-hover:text-[#18181B] dark:group-hover:text-white shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-bold text-[#18181B] dark:text-[#F4F5F7] truncate">
+                    {artist.name}
+                  </p>
+                  <p className="text-xs text-[#9CA3AF] truncate">
+                    {artist.subscribers || "YouTube Music Artist"}
+                  </p>
+                </div>
               </div>
             ))
           )}
