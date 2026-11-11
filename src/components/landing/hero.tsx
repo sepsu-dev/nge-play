@@ -15,6 +15,22 @@ export interface YouTubePlaylist {
   title: string;
 }
 
+export interface AlbumSummary {
+  id: string;
+  title: string;
+  subtitle: string;
+  artist: string;
+  channelId?: string;
+  thumbnail: string;
+}
+
+export interface ArtistSummary {
+  id: string;
+  name: string;
+  subscribers?: string;
+  avatar: string;
+}
+
 export interface ChannelInfo {
   id: string;
   title: string;
@@ -187,13 +203,17 @@ function extractRunsMeta(runs: any[]) {
   };
 }
 
-function ytmThumb(thumbs: any[] | undefined, videoId: string): string {
+function ytmThumb(thumbs: any[] | undefined, videoId: string, size = 544): string {
   const url = thumbs?.slice(-1)[0]?.url;
   if (!url) return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-  return url.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1");
+  return url.replace(/=w\d+-h\d+([^&\s]*)/i, `=w${size}-h${size}$1`);
 }
 
-function parseYtmTracks(data: any, limit = 30): Track[] {
+function parseYtmTracks(
+  data: any,
+  limit = 30,
+  fallback?: { channel?: string; channelId?: string; thumbnail?: string }
+): Track[] {
   const seen = new Set<string>();
   const tracks: Track[] = [];
 
@@ -225,11 +245,14 @@ function parseYtmTracks(data: any, limit = 30): Track[] {
       tracks.push({
         id: videoId,
         title: titleRuns.map((r: any) => r.text).join("").trim() || "Untitled",
-        channel: meta.channel,
-        channelId: meta.channelId,
+        channel:
+          meta.channel === "YouTube Music" && fallback?.channel ? fallback.channel : meta.channel,
+        channelId: meta.channelId || fallback?.channelId,
         duration: normalizeDuration(meta.duration),
         views: meta.views,
-        thumbnail: ytmThumb(thumbs, videoId),
+        thumbnail: thumbs?.length
+          ? ytmThumb(thumbs, videoId)
+          : fallback?.thumbnail || ytmThumb(undefined, videoId),
       });
       return;
     }
@@ -243,11 +266,14 @@ function parseYtmTracks(data: any, limit = 30): Track[] {
       tracks.push({
         id: twoRowId,
         title: (t.title?.runs || []).map((r: any) => r.text).join("").trim() || "Untitled",
-        channel: meta.channel,
-        channelId: meta.channelId,
+        channel:
+          meta.channel === "YouTube Music" && fallback?.channel ? fallback.channel : meta.channel,
+        channelId: meta.channelId || fallback?.channelId,
         duration: normalizeDuration(meta.duration),
         views: meta.views,
-        thumbnail: ytmThumb(thumbs, twoRowId),
+        thumbnail: thumbs?.length
+          ? ytmThumb(thumbs, twoRowId)
+          : fallback?.thumbnail || ytmThumb(undefined, twoRowId),
       });
     }
   });
@@ -270,15 +296,140 @@ function parseYtmPlaylists(data: any, limit = 8): YouTubePlaylist[] {
   return list;
 }
 
+export async function hydrateTrackDurations<T extends Track>(tracks: T[]): Promise<T[]> {
+  const missingIds = [
+    ...new Set(tracks.filter((t) => t.id && (!t.duration || t.duration === "—")).map((t) => t.id)),
+  ];
+  if (!missingIds.length) return tracks;
+
+  const durMap = new Map<string, string>();
+  const chunks: string[][] = [];
+  for (let i = 0; i < missingIds.length; i += 40) {
+    chunks.push(missingIds.slice(i, i + 40));
+  }
+
+  await Promise.all(
+    chunks.map(async (videoIds) => {
+      const res = await ytmPost("music/get_queue", { videoIds });
+      if (!res) return;
+      walkObject(res, (o) => {
+        const p = o?.playlistPanelVideoRenderer;
+        const id = p?.videoId;
+        const raw = p?.lengthText?.runs?.[0]?.text || p?.lengthText?.simpleText;
+        if (id && raw && !durMap.has(id)) durMap.set(id, normalizeDuration(String(raw)));
+      });
+    })
+  );
+
+  if (!durMap.size) return tracks;
+  return tracks.map((t) =>
+    (!t.duration || t.duration === "—") && durMap.has(t.id)
+      ? { ...t, duration: durMap.get(t.id)! }
+      : t
+  );
+}
+
+function parseYtmAlbums(dataList: any[], limit = 16): AlbumSummary[] {
+  const seen = new Set<string>();
+  const albums: AlbumSummary[] = [];
+  for (const data of dataList) {
+    walkObject(data, (o) => {
+      if (albums.length >= limit) return;
+      const t = o?.musicTwoRowItemRenderer;
+      if (!t) return;
+      const browse = t.navigationEndpoint?.browseEndpoint;
+      const id = browse?.browseId || "";
+      const pageType =
+        browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+      if (!id || (!id.startsWith("MPRE") && pageType !== "MUSIC_PAGE_TYPE_ALBUM") || seen.has(id)) {
+        return;
+      }
+      seen.add(id);
+      const title = (t.title?.runs || []).map((r: any) => r.text).join("").trim();
+      const subRuns = t.subtitle?.runs || [];
+      const subtitle = subRuns.map((r: any) => r.text).join("").trim();
+      const meta = extractRunsMeta(subRuns);
+      const rawThumb =
+        t.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || "";
+      if (!title || !rawThumb) return;
+      albums.push({
+        id,
+        title,
+        subtitle: subtitle || meta.channel,
+        artist: meta.channel,
+        channelId: meta.channelId,
+        thumbnail: rawThumb.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1"),
+      });
+    });
+  }
+  return albums;
+}
+
+function parseYtmArtists(dataList: any[], limit = 16): ArtistSummary[] {
+  const seen = new Set<string>();
+  const artists: ArtistSummary[] = [];
+  const push = (id: string, name: string, subscribers: string, rawThumb: string) => {
+    if (!id || !name || !rawThumb || seen.has(id) || artists.length >= limit) return;
+    seen.add(id);
+    artists.push({
+      id,
+      name,
+      subscribers: subscribers || undefined,
+      avatar: rawThumb.replace(/=w\d+-h\d+([^&\s]*)/i, "=w240-h240$1"),
+    });
+  };
+  for (const data of dataList) {
+    walkObject(data, (o) => {
+      if (artists.length >= limit) return;
+      const t = o?.musicTwoRowItemRenderer;
+      if (t) {
+        const b = t.navigationEndpoint?.browseEndpoint;
+        const id = b?.browseId || "";
+        const pt = b?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+        if (id.startsWith("UC") || pt === "MUSIC_PAGE_TYPE_ARTIST") {
+          push(
+            id,
+            (t.title?.runs || []).map((r: any) => r.text).join("").trim(),
+            (t.subtitle?.runs || []).map((r: any) => r.text).join("").trim(),
+            t.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || ""
+          );
+        }
+      }
+      const m = o?.musicResponsiveListItemRenderer;
+      if (m) {
+        const b = m.navigationEndpoint?.browseEndpoint;
+        const id = b?.browseId || "";
+        const pt = b?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+        if (id.startsWith("UC") || pt === "MUSIC_PAGE_TYPE_ARTIST") {
+          const cols = m.flexColumns || [];
+          push(
+            id,
+            (cols[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [])
+              .map((r: any) => r.text).join("").trim(),
+            (cols[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [])
+              .map((r: any) => r.text).join("").trim(),
+            m.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || ""
+          );
+        }
+      }
+    });
+  }
+  return artists;
+}
+
 export async function fetchYouTubeExplore(playlistId?: string): Promise<{
   playlists: YouTubePlaylist[];
   activePlaylistId: string;
   activeTitle: string;
   tracks: Track[];
+  trending: Track[];
+  albums: AlbumSummary[];
+  artists: ArtistSummary[];
 }> {
-  const [homeData, chartsData] = await Promise.all([
+  const [homeData, chartsData, exploreData] = await Promise.all([
     ytmPost("browse", { browseId: "FEmusic_home" }),
     ytmPost("browse", { browseId: "FEmusic_charts" }),
+    ytmPost("browse", { browseId: "FEmusic_explore" }),
   ]);
 
   const playlists: YouTubePlaylist[] = [
@@ -300,6 +451,8 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
   let tracks: Track[] = [];
   if (selected.id === "FEmusic_home" && homeData) {
     tracks = parseYtmTracks(homeData, 30);
+  } else if (selected.id === "FEmusic_explore" && exploreData) {
+    tracks = parseYtmTracks(exploreData, 30);
   }
   if (!tracks.length) {
     const browseId = toYtmListBrowseId(selected.id);
@@ -307,12 +460,101 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
     tracks = parseYtmTracks(data, 40);
   }
 
+  const chartsTracks = parseYtmTracks(chartsData, 12);
+  const rawTrending = chartsTracks.length ? chartsTracks : parseYtmTracks(exploreData, 12);
+  const albums = parseYtmAlbums([exploreData, homeData], 16);
+  const artists = parseYtmArtists([chartsData, homeData], 16);
+
+  const hydrated = await hydrateTrackDurations([...tracks, ...rawTrending]);
+  const hTracks = hydrated.slice(0, tracks.length);
+  const hTrending = hydrated.slice(tracks.length);
+
   return {
     playlists,
     activePlaylistId: selected.id,
     activeTitle: selected.title,
+    tracks: hTracks,
+    trending: hTrending,
+    albums,
+    artists,
+  };
+}
+
+export async function fetchYouTubeAlbum(
+  albumId: string
+): Promise<{ album: AlbumSummary; tracks: Track[] } | null> {
+  if (!albumId) return null;
+  const data = await ytmPost("browse", { browseId: albumId });
+  if (!data) return null;
+
+  let hdr: any = null;
+  walkObject(data, (o) => {
+    if (hdr) return;
+    if (o?.musicResponsiveHeaderRenderer) hdr = o.musicResponsiveHeaderRenderer;
+    else if (o?.musicDetailHeaderRenderer) hdr = o.musicDetailHeaderRenderer;
+  });
+
+  const title = (hdr?.title?.runs || []).map((r: any) => r.text).join("").trim() || "Album";
+  const strapRuns = hdr?.straplineTextOne?.runs || hdr?.subtitle?.runs || [];
+  const meta = extractRunsMeta(strapRuns);
+  const subtitle = (hdr?.subtitle?.runs || []).map((r: any) => r.text).join("").trim();
+  const rawThumb =
+    hdr?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || "";
+  const thumbnail = rawThumb ? rawThumb.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1") : "";
+
+  const parsed = parseYtmTracks(data, 50, {
+    channel: meta.channel !== "YouTube Music" ? meta.channel : undefined,
+    channelId: meta.channelId,
+    thumbnail: thumbnail || undefined,
+  });
+  const tracks = await hydrateTrackDurations(parsed);
+
+  return {
+    album: {
+      id: albumId,
+      title,
+      subtitle: subtitle || meta.channel,
+      artist: meta.channel,
+      channelId: meta.channelId,
+      thumbnail: thumbnail || tracks[0]?.thumbnail || "",
+    },
     tracks,
   };
+}
+
+export async function fetchRelatedTracks(videoId: string): Promise<Track[]> {
+  if (!videoId) return [];
+  const nxt = await ytmPost("next", { videoId, isAudioOnly: true });
+  let relBid = "";
+  walkObject(nxt, (o) => {
+    if (relBid) return;
+    const bid = o?.tabRenderer?.endpoint?.browseEndpoint?.browseId;
+    if (typeof bid === "string" && bid.startsWith("MPTRt_")) relBid = bid;
+  });
+  if (relBid) {
+    const rel = await ytmPost("browse", { browseId: relBid });
+    const parsed = parseYtmTracks(rel, 24);
+    if (parsed.length) return hydrateTrackDurations(parsed);
+  }
+  const seen = new Set<string>([videoId]);
+  const fallback: Track[] = [];
+  walkObject(nxt, (o) => {
+    if (fallback.length >= 20) return;
+    const p = o?.playlistPanelVideoRenderer;
+    const id = p?.videoId;
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const meta = extractRunsMeta(p.longBylineText?.runs || p.shortBylineText?.runs || []);
+    fallback.push({
+      id,
+      title: (p.title?.runs || []).map((r: any) => r.text).join("").trim() || "Untitled",
+      channel: meta.channel,
+      channelId: meta.channelId || findBrowseId(p),
+      duration: normalizeDuration(p.lengthText?.runs?.[0]?.text || p.lengthText?.simpleText),
+      thumbnail: ytmThumb(p.thumbnail?.thumbnails, id),
+    });
+  });
+  return hydrateTrackDurations(fallback);
 }
 
 export async function searchYouTube(query: string): Promise<Track[]> {
@@ -324,7 +566,7 @@ export async function searchYouTube(query: string): Promise<Track[]> {
   if (listId && !directId) {
     const listData = await ytmPost("browse", { browseId: toYtmListBrowseId(listId) });
     const items = parseYtmTracks(listData, 40);
-    if (items.length) return items;
+    if (items.length) return hydrateTrackDurations(items);
   }
 
   if (directId) {
@@ -383,7 +625,7 @@ export async function searchYouTube(query: string): Promise<Track[]> {
     }
   }
 
-  return tracks;
+  return hydrateTrackDurations(tracks);
 }
 
 export async function resolveChannelFromVideo(videoId: string): Promise<string | null> {
@@ -407,7 +649,7 @@ export async function fetchYouTubeChannel(
     if (!res) return null;
     return {
       channel: { id: channelId, title: knownTitle || "Artist" },
-      tracks: parseYtmTracks(res, 60),
+      tracks: await hydrateTrackDurations(parseYtmTracks(res, 60)),
       continuation: findContinuation(res),
     };
   }
@@ -445,7 +687,7 @@ export async function fetchYouTubeChannel(
 
   return {
     channel: { id: resolvedId, title, avatar, subscribers, videoCount },
-    tracks: parseYtmTracks(data, 40),
+    tracks: await hydrateTrackDurations(parseYtmTracks(data, 40)),
     continuation: seeAllBrowseId || findContinuation(data),
   };
 }
