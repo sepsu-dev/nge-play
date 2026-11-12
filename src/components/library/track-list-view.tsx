@@ -96,11 +96,17 @@ export function TrackListView({
     <>
       <section className="flex flex-wrap items-center justify-between gap-3 pb-4 shrink-0">
         <div className="flex items-center gap-3.5 min-w-0">
-          {((tab === "albums" && activeAlbum) || (tab === "artists" && channelInfo)) && (
+          {((tab === "albums" && activeAlbum) ||
+            (tab === "artists" && channelInfo) ||
+            tab === "liked" ||
+            tab === "history" ||
+            tab === "playlist") && (
             <button
               onClick={onBack}
               title="Back"
-              className="p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1E222D] text-[#18181B] dark:text-white transition-colors cursor-pointer shrink-0"
+              className={`p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1E222D] text-[#18181B] dark:text-white transition-colors cursor-pointer shrink-0 ${
+                tab === "liked" || tab === "history" || tab === "playlist" ? "lg:hidden" : ""
+              }`}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>

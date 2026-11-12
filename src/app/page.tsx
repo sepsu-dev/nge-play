@@ -4,7 +4,7 @@ import type { Track } from "@/actions/youtube";
 import { HomeDashboard } from "@/components/library/home-dashboard";
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { AlbumsGrid, ArtistsGrid } from "@/components/library/browse-grids";
+import { AlbumsGrid, ArtistsGrid, LibraryView } from "@/components/library/browse-grids";
 import {
   NewPlaylistModal,
   TrackContextMenu,
@@ -12,6 +12,7 @@ import {
 import { TrackListView } from "@/components/library/track-list-view";
 import { NowPlayingModal } from "@/components/player/now-playing-modal";
 import { PlayerFooter } from "@/components/player/player-footer";
+import { RoomModal } from "@/components/room/room-modal";
 import { useNgePlay } from "@/hooks/use-nge-play";
 import type { TabId } from "@/lib/player-state";
 
@@ -64,6 +65,7 @@ export default function NgePlayPage() {
     <div className="min-h-screen w-full bg-white dark:bg-[#0D0F14] text-[#18181B] dark:text-[#F4F5F7] flex flex-col select-none">
       <AppHeader
         query={s.query}
+        room={s.room}
         onQueryChange={s.setQuery}
         onSearch={s.handleSearch}
         onClearSearch={() => {
@@ -75,6 +77,7 @@ export default function NgePlayPage() {
           s.setActiveAlbum(null);
           s.setChannelInfo(null);
         }}
+        onOpenRoom={() => s.setRoomModalOpen(true)}
       />
 
       <div className="flex-1 flex min-w-0">
@@ -121,6 +124,19 @@ export default function NgePlayPage() {
               <AlbumsGrid albums={s.albums} onOpenAlbum={s.openAlbum} />
             ) : s.tab === "artists" && !s.channelInfo ? (
               <ArtistsGrid artists={s.artists} onOpenArtist={s.openChannel} />
+            ) : s.tab === "library" ? (
+              <LibraryView
+                likedCount={s.liked.length}
+                historyCount={s.history.length}
+                customPlaylists={s.customPlaylists}
+                onOpenLiked={() => s.setTab("liked")}
+                onOpenHistory={() => s.setTab("history")}
+                onOpenPlaylist={(id) => {
+                  s.setActiveCustomPlId(id);
+                  s.setTab("playlist");
+                }}
+                onOpenNewPlaylist={() => s.setNewPlaylistOpen(true)}
+              />
             ) : (
               <TrackListView
                 tab={s.tab}
@@ -139,6 +155,10 @@ export default function NgePlayPage() {
                 activeCustomPlaylist={activeCustomPlaylist}
                 queueLength={s.queue.length}
                 onBack={() => {
+                  if (s.tab === "liked" || s.tab === "history" || s.tab === "playlist") {
+                    s.setTab("library");
+                    return;
+                  }
                   s.setActiveAlbum(null);
                   s.setChannelInfo(null);
                 }}
@@ -203,6 +223,16 @@ export default function NgePlayPage() {
         onNameChange={s.setNewPlaylistName}
         onClose={() => s.setNewPlaylistOpen(false)}
         onCreate={s.createCustomPlaylist}
+      />
+
+      <RoomModal
+        open={s.roomModalOpen}
+        room={s.room}
+        busy={s.roomBusy}
+        onClose={() => s.setRoomModalOpen(false)}
+        onCreateRoom={s.createRoom}
+        onJoinRoom={s.joinRoom}
+        onLeaveRoom={s.leaveRoom}
       />
 
       <div className="fixed right-3 bottom-20 opacity-0 pointer-events-none w-[320px] h-[180px]">

@@ -6,6 +6,7 @@ import {
   Headphones,
   Heart,
   Home,
+  ListMusic,
   Music,
   Pause,
   Play,
@@ -85,7 +86,7 @@ export function PlayerFooter({
     { id: "songs", label: "Songs", icon: Headphones },
     { id: "albums", label: "Albums", icon: Disc3 },
     { id: "artists", label: "Artists", icon: Users },
-    { id: "liked", label: "Liked", icon: Heart },
+    { id: "library", label: "Library", icon: ListMusic },
   ];
 
   return (
@@ -94,7 +95,10 @@ export function PlayerFooter({
         <nav className="lg:hidden flex items-center justify-around border-t border-black/[0.04] dark:border-white/[0.06] bg-[#FAFAFB] dark:bg-[#12151D] px-2 py-1.5">
           {mobileNav.map((item) => {
             const Icon = item.icon;
-            const active = tab === item.id;
+            const active =
+              item.id === "library"
+                ? tab === "library" || tab === "liked" || tab === "history" || tab === "playlist"
+                : tab === item.id;
             return (
               <button
                 key={item.id}

@@ -32,6 +32,7 @@ interface UseYoutubePlayerParams {
   currentIndexRef: React.MutableRefObject<number>;
   pendingResumeRef: React.MutableRefObject<PendingResume | null>;
   onAdvanceTrack: (index: number, list: Track[]) => void;
+  onTrackEnded?: () => boolean | void;
   onSaveSession: (overrides?: { currentTime?: number; isPlaying?: boolean }, syncFlush?: boolean) => void;
 }
 
@@ -60,6 +61,7 @@ export function useYoutubePlayer({
   currentIndexRef,
   pendingResumeRef,
   onAdvanceTrack,
+  onTrackEnded,
   onSaveSession,
 }: UseYoutubePlayerParams) {
   const playerRef = useRef<any>(null);
@@ -71,8 +73,8 @@ export function useYoutubePlayer({
   const optsRef = useRef({ isPlaying, volume, muted, repeat, shuffle });
   optsRef.current = { isPlaying, volume, muted, repeat, shuffle };
 
-  const callbacksRef = useRef({ onAdvanceTrack, onSaveSession, setIsPlaying });
-  callbacksRef.current = { onAdvanceTrack, onSaveSession, setIsPlaying };
+  const callbacksRef = useRef({ onAdvanceTrack, onTrackEnded, onSaveSession, setIsPlaying });
+  callbacksRef.current = { onAdvanceTrack, onTrackEnded, onSaveSession, setIsPlaying };
 
   const loadVideo = useCallback(
     (videoId: string, startSeconds = 0, autoPlay = true) => {
@@ -90,11 +92,13 @@ export function useYoutubePlayer({
 
   const playVideo = useCallback(() => {
     if (readyRef.current) playerRef.current?.playVideo?.();
-  }, []);
+    else if (pendingResumeRef.current) pendingResumeRef.current.autoPlay = true;
+  }, [pendingResumeRef]);
 
   const pauseVideo = useCallback(() => {
     if (readyRef.current) playerRef.current?.pauseVideo?.();
-  }, []);
+    else if (pendingResumeRef.current) pendingResumeRef.current.autoPlay = false;
+  }, [pendingResumeRef]);
 
   const togglePlay = useCallback(() => {
     if (!readyRef.current || !playerRef.current) return;
@@ -107,6 +111,8 @@ export function useYoutubePlayer({
       clock.set(val);
       if (readyRef.current && playerRef.current?.seekTo) {
         playerRef.current.seekTo(val, true);
+      } else if (pendingResumeRef.current) {
+        pendingResumeRef.current.seekTo = val;
       }
       const dur = clock.getSnapshot().duration;
       if (dur > 0 && "mediaSession" in navigator && navigator.mediaSession.setPositionState) {
@@ -120,7 +126,7 @@ export function useYoutubePlayer({
       }
       callbacksRef.current.onSaveSession({ currentTime: val });
     },
-    [clock]
+    [clock, pendingResumeRef]
   );
 
   const setPlayerVolume = useCallback((val: number) => {
@@ -242,6 +248,7 @@ export function useYoutubePlayer({
               callbacksRef.current.onSaveSession({ currentTime: t, isPlaying: false }, true);
             } else if (e.data === S.ENDED) {
               if (loadingTargetIdRef.current) return;
+              if (callbacksRef.current.onTrackEnded?.() === true) return;
               const { repeat: r, shuffle: sh } = optsRef.current;
               const q = queueRef.current;
               const i = currentIndexRef.current;

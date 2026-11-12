@@ -8,6 +8,7 @@ import {
   resolveTrackSwitch,
   shouldAcceptPlayerEvent,
 } from "@/lib/player-state";
+import { applyRoomCommand, computeRoomTime, createRoomState, makeRoomCode } from "@/lib/room";
 
 const makeTrack = (id: string): Track => ({
   id,
@@ -77,5 +78,50 @@ assert.equal(shouldAcceptPlayerEvent("vid_B", "vid_B", "vid_B", 1, true), true);
 assert.equal(shouldAcceptPlayerEvent("", "vid_B", "vid_B", 1, true), true);
 assert.equal(shouldAcceptPlayerEvent("vid_A", "vid_B", null, 1, false), false);
 assert.equal(shouldAcceptPlayerEvent("vid_B", "vid_B", null, 1, false), true);
+
+// 7. Room state sync & baseVersion conflict guard
+const room0 = createRoomState({
+  code: "ABC123",
+  clientId: "u1",
+  queue: [a, b, c],
+  currentIndex: 0,
+  currentTime: 10,
+  isPlaying: true,
+  now: 1000,
+});
+assert.equal(computeRoomTime(room0, 6000), 15);
+
+const paused = applyRoomCommand(room0, { type: "pause" }, "u2", 6000);
+assert.equal(paused.changed, true);
+assert.equal(paused.room.isPlaying, false);
+assert.equal(paused.room.anchorTime, 15);
+assert.equal(computeRoomTime(paused.room, 20000), 15);
+
+const next1 = applyRoomCommand(paused.room, { type: "next", baseVersion: 2 }, "u2", 7000);
+assert.equal(next1.changed, true);
+assert.equal(next1.room.currentIndex, 1);
+assert.equal(next1.room.version, 3);
+
+// Stale auto-next from another listener with old baseVersion must be ignored
+const nextStale = applyRoomCommand(next1.room, { type: "next", baseVersion: 2 }, "u3", 7100);
+assert.equal(nextStale.changed, false);
+assert.equal(nextStale.room.currentIndex, 1);
+
+// Prev > 4s restarts track, <= 4s goes previous track
+const prevRestart = applyRoomCommand(next1.room, { type: "prev", atTime: 8 }, "u1", 8000);
+assert.equal(prevRestart.room.currentIndex, 1);
+assert.equal(prevRestart.room.anchorTime, 0);
+const prevBack = applyRoomCommand(prevRestart.room, { type: "prev", atTime: 2 }, "u1", 9000);
+assert.equal(prevBack.room.currentIndex, 0);
+
+// 8. Generated room codes never collide with existing or retired codes
+const seen = new Set<string>();
+for (let i = 0; i < 200; i++) {
+  const code = makeRoomCode(seen);
+  assert.equal(seen.has(code), false);
+  seen.add(code);
+}
+const fallbackCode = makeRoomCode({ has: (c) => c.length === 6 });
+assert.equal(fallbackCode.length > 6, true);
 
 console.log("ALL_PLAYER_STATE_CHECKS_PASSED");

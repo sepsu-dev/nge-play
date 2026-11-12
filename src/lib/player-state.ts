@@ -14,7 +14,8 @@ export type TabId =
   | "liked"
   | "history"
   | "queue"
-  | "playlist";
+  | "playlist"
+  | "library";
 
 export interface SessionSnapshot {
   queue: Track[];
