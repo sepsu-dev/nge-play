@@ -46,6 +46,7 @@ export function PwaRegister() {
   const [platform, setPlatform] = useState<MobilePlatform>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [open, setOpen] = useState(false);
+  const [splashState, setSplashState] = useState<"hidden" | "show" | "fade">("hidden");
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -67,7 +68,18 @@ export function PwaRegister() {
       }
     }
 
-    if (isStandaloneMode() || hasSeenPrompt()) return;
+    if (isStandaloneMode()) {
+      // ponytail: client-only standalone splash; needs inline pre-hydration script if zero initial paint flash required
+      setSplashState("show");
+      const fadeTimer = window.setTimeout(() => setSplashState("fade"), 450);
+      const hideTimer = window.setTimeout(() => setSplashState("hidden"), 750);
+      return () => {
+        window.clearTimeout(fadeTimer);
+        window.clearTimeout(hideTimer);
+      };
+    }
+
+    if (hasSeenPrompt()) return;
 
     const detected = detectMobilePlatform();
     if (!detected) return;
@@ -108,6 +120,28 @@ export function PwaRegister() {
     await deferredPrompt.userChoice.catch(() => {});
     setDeferredPrompt(null);
     setOpen(false);
+  }
+
+  if (splashState !== "hidden") {
+    return (
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 z-[60] bg-[#0D0F14] flex items-center justify-center transition-opacity duration-300 pointer-events-none ${
+          splashState === "fade" ? "opacity-0" : "opacity-100"
+        }`}
+      >
+        <svg
+          className="w-11 h-11 drop-shadow-[0_6px_18px_rgba(255,208,20,0.35)] np-pop-enter"
+          viewBox="0 0 32 32"
+          fill="none"
+        >
+          <path
+            d="M7 6.8C7 4.45 9.62 3.05 11.58 4.35L25.4 13.55C27.15 14.71 27.15 17.29 25.4 18.45L11.58 27.65C9.62 28.95 7 27.55 7 25.2V6.8Z"
+            fill="#FFD014"
+          />
+        </svg>
+      </div>
+    );
   }
 
   if (!open || !platform) return null;
@@ -152,7 +186,6 @@ export function PwaRegister() {
             <X className="w-4 h-4" />
           </button>
         </div>
-
 
         {platform === "android" ? (
           <div className="flex justify-end gap-2">

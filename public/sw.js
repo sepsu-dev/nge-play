@@ -1,4 +1,4 @@
-const CACHE_NAME = "ngeplay-shell-v2";
+const CACHE_NAME = "ngeplay-shell-v3";
 const SHELL_ASSETS = ["/", "/icon.svg", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
