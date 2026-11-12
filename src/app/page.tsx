@@ -256,14 +256,14 @@ export default function NgePlayPage() {
         lyrics={s.lyrics}
         loadingLyrics={s.loadingLyrics}
         lyricVariantIdx={s.lyricVariantIdx}
+        lyricOffset={s.lyricOffset}
         relatedTracks={s.relatedTracks}
         loadingRelated={s.loadingRelated}
         clock={s.clock}
         onClose={() => s.setNowPlayingOpen(false)}
         onTabChange={s.setNowPlayingTab}
-        onCycleLyricVariant={() =>
-          s.setLyricVariantIdx((i) => (s.lyrics?.variants ? (i + 1) % s.lyrics.variants.length : 0))
-        }
+        onCycleLyricVariant={s.cycleLyricVariant}
+        onChangeLyricOffset={s.changeLyricOffset}
         onOpenArtist={s.openChannel}
         onToggleLike={s.toggleLike}
         onOpenMenu={(track, e) => s.openTrackMenu(track, e)}

@@ -141,6 +141,20 @@ assert.equal(prevRestart.room.anchorTime, 0);
 const prevBack = applyRoomCommand(prevRestart.room, { type: "prev", atTime: 2 }, "u1", 9000);
 assert.equal(prevBack.room.currentIndex, 0);
 
+// 7b. Lyrics variant & offset sync in room, reset on track switch
+const lyricSynced = applyRoomCommand(
+  next1.room,
+  { type: "setLyrics", variantIdx: 2, offset: -1.5 },
+  "u2",
+  9200
+);
+assert.equal(lyricSynced.changed, true);
+assert.equal(lyricSynced.room.lyricVariantIdx, 2);
+assert.equal(lyricSynced.room.lyricOffset, -1.5);
+const lyricAfterNext = applyRoomCommand(lyricSynced.room, { type: "next" }, "u1", 9500);
+assert.equal(lyricAfterNext.room.lyricVariantIdx, 0);
+assert.equal(lyricAfterNext.room.lyricOffset, 0);
+
 // 8. Generated room codes never collide with existing or retired codes
 const seen = new Set<string>();
 for (let i = 0; i < 200; i++) {

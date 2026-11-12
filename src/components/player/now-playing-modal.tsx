@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import {
   ChevronDown,
   Heart,
@@ -24,12 +24,14 @@ interface NowPlayingModalProps {
   lyrics: LyricsResult | null;
   loadingLyrics: boolean;
   lyricVariantIdx: number;
+  lyricOffset: number;
   relatedTracks: Track[];
   loadingRelated: boolean;
   clock: ClockStore;
   onClose: () => void;
   onTabChange: (tab: "upnext" | "lyrics" | "related") => void;
   onCycleLyricVariant: () => void;
+  onChangeLyricOffset: (offset: number) => void;
   onOpenArtist: (track: Track | ArtistSummary | string, e?: React.MouseEvent) => void;
   onToggleLike: (track: Track) => void;
   onOpenMenu: (track: Track, e: React.MouseEvent) => void;
@@ -51,12 +53,14 @@ export function NowPlayingModal({
   lyrics,
   loadingLyrics,
   lyricVariantIdx,
+  lyricOffset,
   relatedTracks,
   loadingRelated,
   clock,
   onClose,
   onTabChange,
   onCycleLyricVariant,
+  onChangeLyricOffset,
   onOpenArtist,
   onToggleLike,
   onOpenMenu,
@@ -65,13 +69,8 @@ export function NowPlayingModal({
   onSeek,
 }: NowPlayingModalProps) {
   const { currentTime } = usePlaybackClock(clock);
-  const [lyricOffset, setLyricOffset] = useState(0);
   const lyricsModalBoxRef = useRef<HTMLDivElement | null>(null);
   const activeModalLyricRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    setLyricOffset(0);
-  }, [currentTrack?.id, lyricVariantIdx]);
 
   const activeLyrics = lyrics?.variants?.[lyricVariantIdx] || lyrics;
   const activeLyricIndex = activeLyrics?.synced.length
@@ -186,7 +185,7 @@ export function NowPlayingModal({
               <div className="mb-2 flex items-center gap-1 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setLyricOffset((v) => Math.round((v - 0.5) * 10) / 10)}
+                  onClick={() => onChangeLyricOffset(Math.round((lyricOffset - 0.5) * 10) / 10)}
                   title="Delay lyrics 0.5s"
                   className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
                 >
@@ -195,7 +194,7 @@ export function NowPlayingModal({
                 {lyricOffset !== 0 && (
                   <button
                     type="button"
-                    onClick={() => setLyricOffset(0)}
+                    onClick={() => onChangeLyricOffset(0)}
                     title="Reset lyric sync offset"
                     className="px-1.5 py-1 rounded-lg bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014] text-[11px] font-semibold cursor-pointer tabular-nums"
                   >
@@ -204,7 +203,7 @@ export function NowPlayingModal({
                 )}
                 <button
                   type="button"
-                  onClick={() => setLyricOffset((v) => Math.round((v + 0.5) * 10) / 10)}
+                  onClick={() => onChangeLyricOffset(Math.round((lyricOffset + 0.5) * 10) / 10)}
                   title="Advance lyrics 0.5s"
                   className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
                 >
@@ -327,7 +326,7 @@ export function NowPlayingModal({
                         key={`modal-${line.time}-${i}`}
                         ref={active ? activeModalLyricRef : null}
                         onClick={() => onSeek(Math.max(0, line.time - lyricOffset))}
-                        className={`w-full text-left text-[15px] sm:text-lg leading-snug font-semibold px-3.5 py-2 rounded-2xl flex items-center gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
+                        className={`w-full text-left text-[13px] sm:text-[15px] leading-snug font-semibold px-3 py-1.5 rounded-2xl flex items-center gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
                           active
                             ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#18181B] dark:text-[#FFD014] shadow-[0_6px_20px_rgba(255,208,20,0.16)] dark:shadow-none"
                             : past
@@ -338,7 +337,7 @@ export function NowPlayingModal({
                         <span
                           className={`w-1 rounded-full transition-all duration-300 shrink-0 ${
                             active
-                              ? `h-5 bg-[#FFD014] ${isPlaying ? "animate-pulse" : ""}`
+                              ? `h-4 bg-[#FFD014] ${isPlaying ? "animate-pulse" : ""}`
                               : "h-1.5 bg-transparent"
                           }`}
                         />
@@ -354,7 +353,7 @@ export function NowPlayingModal({
                   })}
                 </>
               ) : activeLyrics?.plain ? (
-                <pre className="text-sm sm:text-base text-[#374151] dark:text-[#D1D5DB] whitespace-pre-wrap font-sans leading-relaxed">
+                <pre className="text-xs sm:text-sm text-[#374151] dark:text-[#D1D5DB] whitespace-pre-wrap font-sans leading-relaxed">
                   {activeLyrics.plain}
                 </pre>
               ) : (

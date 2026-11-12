@@ -960,7 +960,10 @@ export async function fetchTrackLyrics(
         else r.score += Math.round(r.ratio * 40);
       }
     }
-    return scored.sort((a, b) => b.score - a.score);
+    return scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return String(a.item?.id ?? "").localeCompare(String(b.item?.id ?? ""));
+    });
   };
 
   let ranked = rankCandidates();

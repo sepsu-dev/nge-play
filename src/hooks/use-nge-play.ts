@@ -100,6 +100,7 @@ export function useNgePlay() {
   const [lyrics, setLyrics] = useState<LyricsResult | null>(null);
   const [loadingLyrics, setLoadingLyrics] = useState(false);
   const [lyricVariantIdx, setLyricVariantIdx] = useState(0);
+  const [lyricOffset, setLyricOffset] = useState(0);
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [nowPlayingTab, setNowPlayingTab] = useState<"upnext" | "lyrics" | "related">("upnext");
   const [relatedTracks, setRelatedTracks] = useState<Track[]>([]);
@@ -139,9 +140,13 @@ export function useNgePlay() {
   const memberNameRef = useRef("");
   const memberIconRef = useRef<MemberIconId | "">("");
   const clockOffsetRef = useRef(0);
+  const hasClockOffsetRef = useRef(false);
+  const bestRttRef = useRef(Infinity);
+  const lastRoomResyncAtRef = useRef(0);
   const lastAppliedVersionRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onTrackEndedRef = useRef<() => boolean>(() => false);
+  const onPlayerPlayingRef = useRef<(actualTime: number) => void>(() => {});
 
   const queueRef = useRef<Track[]>(queue);
   const currentIndexRef = useRef<number>(currentIndex);
@@ -218,7 +223,7 @@ export function useNgePlay() {
     pendingResumeRef,
     onAdvanceTrack: (idx, list) => playTrackAtRef.current(idx, list),
     onTrackEnded: () => onTrackEndedRef.current(),
-    onPlayerPlaying: () => setPlaybackSignal((n) => n + 1),
+    onPlayerPlaying: (actualTime) => onPlayerPlayingRef.current(actualTime),
     onSaveSession: saveSession,
   });
 
@@ -270,8 +275,18 @@ export function useNgePlay() {
 
   const syncClockOffset = useCallback((serverNow: number, t0?: number) => {
     const t1 = Date.now();
-    const refTime = t0 !== undefined ? (t0 + t1) / 2 : t1;
-    clockOffsetRef.current = serverNow - refTime;
+    if (t0 !== undefined) {
+      const rtt = Math.max(0, t1 - t0);
+      if (!hasClockOffsetRef.current || rtt <= bestRttRef.current + 120) {
+        hasClockOffsetRef.current = true;
+        bestRttRef.current = Math.min(bestRttRef.current, rtt);
+        clockOffsetRef.current = serverNow - (t0 + t1) / 2;
+      }
+      return;
+    }
+    if (!hasClockOffsetRef.current) {
+      clockOffsetRef.current = serverNow - t1;
+    }
   }, []);
 
   const clearRoomLocal = useCallback(() => {
@@ -279,6 +294,10 @@ export function useNgePlay() {
     eventSourceRef.current = null;
     roomRef.current = null;
     lastAppliedVersionRef.current = 0;
+    hasClockOffsetRef.current = false;
+    bestRttRef.current = Infinity;
+    clockOffsetRef.current = 0;
+    lastRoomResyncAtRef.current = 0;
     setRoom(null);
     setRoomUrlParam(null);
   }, []);
@@ -291,7 +310,13 @@ export function useNgePlay() {
       lastAppliedVersionRef.current = nextRoom.version;
       hasUserPlaybackRef.current = true;
 
-      const targetTime = computeRoomTime(nextRoom, serverNow);
+      setLyricVariantIdx(nextRoom.lyricVariantIdx ?? 0);
+      setLyricOffset(nextRoom.lyricOffset ?? 0);
+
+      const estServerNow = hasClockOffsetRef.current
+        ? Date.now() + clockOffsetRef.current
+        : serverNow;
+      const targetTime = computeRoomTime(nextRoom, estServerNow);
       if (!isSameQueue(queueRef.current, nextRoom.queue)) {
         queueRef.current = nextRoom.queue;
         setQueue(nextRoom.queue);
@@ -327,16 +352,23 @@ export function useNgePlay() {
       if (nextRoom.isPlaying !== wasPlaying) {
         setIsPlaying(nextRoom.isPlaying);
         if (nextRoom.isPlaying) {
-          if (Math.abs(localTime - targetTime) > 1.5) player.seekTo(targetTime);
+          if (Math.abs(localTime - targetTime) > 0.5) {
+            const target = targetTime + 0.1;
+            lastRoomResyncAtRef.current = Date.now();
+            player.seekTo(target);
+            clock.set(target);
+          }
           player.playVideo();
         } else {
           player.pauseVideo();
           clock.set(targetTime);
-          if (Math.abs(localTime - targetTime) > 0.8) player.seekTo(targetTime);
+          if (Math.abs(localTime - targetTime) > 0.25) player.seekTo(targetTime);
         }
-      } else if (Math.abs(localTime - targetTime) > (nextRoom.isPlaying ? 1.8 : 0.8)) {
-        player.seekTo(targetTime);
-        clock.set(targetTime);
+      } else if (Math.abs(localTime - targetTime) > (nextRoom.isPlaying ? 0.5 : 0.25)) {
+        const target = nextRoom.isPlaying ? targetTime + 0.1 : targetTime;
+        lastRoomResyncAtRef.current = Date.now();
+        player.seekTo(target);
+        clock.set(target);
       }
     },
     [clock, player]
@@ -420,6 +452,8 @@ export function useNgePlay() {
           currentIndex: queueRef.current.length ? currentIndexRef.current : 0,
           currentTime: queueRef.current.length ? clock.getSnapshot().currentTime : 0,
           isPlaying: queueRef.current.length ? stateRef.current.isPlaying : false,
+          lyricVariantIdx,
+          lyricOffset,
         }),
       });
       if (!res.ok) throw new Error();
@@ -436,7 +470,18 @@ export function useNgePlay() {
     } finally {
       setRoomBusy(false);
     }
-  }, [clock, connectRoomStream, getClientId, getMemberIcon, getMemberName, results, syncClockOffset, trending]);
+  }, [
+    clock,
+    connectRoomStream,
+    getClientId,
+    getMemberIcon,
+    getMemberName,
+    lyricOffset,
+    lyricVariantIdx,
+    results,
+    syncClockOffset,
+    trending,
+  ]);
 
   const joinRoom = useCallback(
     async (rawCode: string, silent = false): Promise<boolean> => {
@@ -895,18 +940,23 @@ export function useNgePlay() {
   useEffect(() => {
     if (!currentTrack?.id) return;
     let cancelled = false;
+    let reqSeq = 0;
     let fetchedDur = fallbackRoundDur || Math.round(clock.getSnapshot().duration) || 0;
     setLyrics(null);
-    setLyricVariantIdx(0);
+    if (!roomRef.current) {
+      setLyricVariantIdx(0);
+      setLyricOffset(0);
+    }
 
     const runFetch = (dur?: number) => {
+      const mySeq = ++reqSeq;
       setLoadingLyrics(true);
       fetchTrackLyrics(currentTrack.title, currentTrack.channel, dur)
         .then((res) => {
-          if (!cancelled) setLyrics(res);
+          if (!cancelled && mySeq === reqSeq) setLyrics(res);
         })
         .finally(() => {
-          if (!cancelled) setLoadingLyrics(false);
+          if (!cancelled && mySeq === reqSeq) setLoadingLyrics(false);
         });
     };
 
@@ -956,21 +1006,68 @@ export function useNgePlay() {
 
   const playerSeekRef = useRef(player.seekTo);
   playerSeekRef.current = player.seekTo;
+  const playerPauseRef = useRef(player.pauseVideo);
+  playerPauseRef.current = player.pauseVideo;
+  const playerStateRef = useRef(player.getPlayerState);
+  playerStateRef.current = player.getPlayerState;
+
+  onPlayerPlayingRef.current = (actualTime: number) => {
+    setPlaybackSignal((n) => n + 1);
+    const cur = roomRef.current;
+    if (!cur) return;
+    if (!cur.isPlaying) {
+      playerSeekRef.current(cur.anchorTime);
+      playerPauseRef.current();
+      return;
+    }
+    const estNow = hasClockOffsetRef.current ? Date.now() + clockOffsetRef.current : Date.now();
+    const expected = computeRoomTime(cur, estNow);
+    if (Math.abs(actualTime - expected) > 0.35 && Date.now() - lastRoomResyncAtRef.current > 1500) {
+      lastRoomResyncAtRef.current = Date.now();
+      const target = expected + 0.12;
+      playerSeekRef.current(target);
+      clock.set(target);
+    }
+  };
 
   useEffect(() => {
     if (!room?.code || !room.isPlaying) return;
     const timer = setInterval(() => {
       const cur = roomRef.current;
       if (!cur || !cur.isPlaying) return;
+      if (playerStateRef.current() !== 1) return;
       const expected = computeRoomTime(cur, Date.now() + clockOffsetRef.current);
       const actual = clock.getSnapshot().currentTime;
-      if (Math.abs(actual - expected) > 2.0) {
-        playerSeekRef.current(expected);
-        clock.set(expected);
+      if (Math.abs(actual - expected) > 0.5 && Date.now() - lastRoomResyncAtRef.current > 2000) {
+        lastRoomResyncAtRef.current = Date.now();
+        const target = expected + 0.1;
+        playerSeekRef.current(target);
+        clock.set(target);
       }
-    }, 2500);
+    }, 1000);
     return () => clearInterval(timer);
   }, [room?.code, room?.isPlaying, clock]);
+
+  const cycleLyricVariant = useCallback(() => {
+    const len = lyrics?.variants?.length || 0;
+    const nextIdx = len > 1 ? (lyricVariantIdx + 1) % len : 0;
+    setLyricVariantIdx(nextIdx);
+    setLyricOffset(0);
+    if (roomRef.current) {
+      void sendRoomCommand({ type: "setLyrics", variantIdx: nextIdx, offset: 0 });
+    }
+  }, [lyrics?.variants?.length, lyricVariantIdx, sendRoomCommand]);
+
+  const changeLyricOffset = useCallback(
+    (nextOffset: number) => {
+      const clean = Math.max(-30, Math.min(30, Math.round(nextOffset * 10) / 10));
+      setLyricOffset(clean);
+      if (roomRef.current) {
+        void sendRoomCommand({ type: "setLyrics", offset: clean });
+      }
+    },
+    [sendRoomCommand]
+  );
 
   useEffect(() => {
     return () => {
@@ -1250,7 +1347,9 @@ export function useNgePlay() {
     lyrics,
     loadingLyrics,
     lyricVariantIdx,
-    setLyricVariantIdx,
+    lyricOffset,
+    cycleLyricVariant,
+    changeLyricOffset,
     nowPlayingOpen,
     setNowPlayingOpen,
     nowPlayingTab,

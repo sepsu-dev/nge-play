@@ -29,6 +29,8 @@ export interface RoomState {
   isPlaying: boolean;
   anchorTime: number;
   anchorAt: number;
+  lyricVariantIdx: number;
+  lyricOffset: number;
   updatedBy: string;
   memberCount: number;
   members: RoomMember[];
@@ -43,7 +45,8 @@ export type RoomCommand =
   | { type: "setTrack"; index: number; queue?: Track[]; autoPlay?: boolean }
   | { type: "next"; shuffle?: boolean; baseVersion?: number }
   | { type: "prev"; atTime?: number }
-  | { type: "clearQueue" };
+  | { type: "clearQueue" }
+  | { type: "setLyrics"; variantIdx?: number; offset?: number };
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -139,6 +142,8 @@ export function createRoomState(params: {
   currentIndex: number;
   currentTime: number;
   isPlaying: boolean;
+  lyricVariantIdx?: number;
+  lyricOffset?: number;
   now?: number;
 }): RoomState {
   const now = params.now ?? Date.now();
@@ -146,6 +151,14 @@ export function createRoomState(params: {
   const maxIdx = Math.max(0, queue.length - 1);
   const currentIndex = Math.min(Math.max(0, params.currentIndex), maxIdx);
   const anchorTime = Math.max(0, Number.isFinite(params.currentTime) ? params.currentTime : 0);
+  const lyricVariantIdx =
+    typeof params.lyricVariantIdx === "number" && Number.isFinite(params.lyricVariantIdx)
+      ? Math.max(0, Math.floor(params.lyricVariantIdx))
+      : 0;
+  const lyricOffset =
+    typeof params.lyricOffset === "number" && Number.isFinite(params.lyricOffset)
+      ? Math.max(-30, Math.min(30, Math.round(params.lyricOffset * 10) / 10))
+      : 0;
   const name = sanitizeMemberName(params.clientName || "") || generateMemberName();
   const icon = parseMemberIcon(params.clientIcon) || generateMemberIcon();
 
@@ -157,6 +170,8 @@ export function createRoomState(params: {
     isPlaying: queue.length > 0 && params.isPlaying,
     anchorTime,
     anchorAt: now,
+    lyricVariantIdx,
+    lyricOffset,
     updatedBy: params.clientId,
     memberCount: 1,
     members: [{ id: params.clientId, name, icon }],
@@ -183,6 +198,7 @@ export function applyRoomCommand(
     const nextQueue = command.queue ? command.queue.slice(0, 60) : room.queue;
     if (!nextQueue.length) return { room, changed: false };
     const idx = Math.min(Math.max(0, command.index), nextQueue.length - 1);
+    const sameTrack = nextQueue[idx]?.id === room.queue[room.currentIndex]?.id;
     return {
       changed: true,
       room: {
@@ -193,6 +209,8 @@ export function applyRoomCommand(
         isPlaying: command.autoPlay ?? true,
         anchorTime: 0,
         anchorAt: now,
+        lyricVariantIdx: sameTrack ? room.lyricVariantIdx : 0,
+        lyricOffset: sameTrack ? room.lyricOffset : 0,
         updatedBy: clientId,
         lastActivityAt: now,
       },
@@ -243,6 +261,7 @@ export function applyRoomCommand(
       idx = Math.floor(Math.random() * room.queue.length);
       if (idx === room.currentIndex) idx = (idx + 1) % room.queue.length;
     }
+    const sameTrack = room.queue[idx]?.id === room.queue[room.currentIndex]?.id;
     return {
       changed: true,
       room: {
@@ -252,6 +271,8 @@ export function applyRoomCommand(
         isPlaying: true,
         anchorTime: 0,
         anchorAt: now,
+        lyricVariantIdx: sameTrack ? room.lyricVariantIdx : 0,
+        lyricOffset: sameTrack ? room.lyricOffset : 0,
         updatedBy: clientId,
         lastActivityAt: now,
       },
@@ -277,6 +298,7 @@ export function applyRoomCommand(
       };
     }
     const idx = (room.currentIndex - 1 + room.queue.length) % room.queue.length;
+    const sameTrack = room.queue[idx]?.id === room.queue[room.currentIndex]?.id;
     return {
       changed: true,
       room: {
@@ -286,6 +308,33 @@ export function applyRoomCommand(
         isPlaying: true,
         anchorTime: 0,
         anchorAt: now,
+        lyricVariantIdx: sameTrack ? room.lyricVariantIdx : 0,
+        lyricOffset: sameTrack ? room.lyricOffset : 0,
+        updatedBy: clientId,
+        lastActivityAt: now,
+      },
+    };
+  }
+
+  if (command.type === "setLyrics") {
+    const nextVariant =
+      typeof command.variantIdx === "number" && Number.isFinite(command.variantIdx)
+        ? Math.max(0, Math.floor(command.variantIdx))
+        : room.lyricVariantIdx;
+    const nextOffset =
+      typeof command.offset === "number" && Number.isFinite(command.offset)
+        ? Math.max(-30, Math.min(30, Math.round(command.offset * 10) / 10))
+        : room.lyricOffset;
+    if (nextVariant === room.lyricVariantIdx && nextOffset === room.lyricOffset) {
+      return { room, changed: false };
+    }
+    return {
+      changed: true,
+      room: {
+        ...room,
+        version: room.version + 1,
+        lyricVariantIdx: nextVariant,
+        lyricOffset: nextOffset,
         updatedBy: clientId,
         lastActivityAt: now,
       },

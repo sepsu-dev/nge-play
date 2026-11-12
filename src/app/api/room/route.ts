@@ -197,6 +197,8 @@ export async function POST(req: NextRequest) {
       currentIndex: Number(body.currentIndex) || 0,
       currentTime: Number(body.currentTime) || 0,
       isPlaying: Boolean(body.isPlaying),
+      lyricVariantIdx: Number(body.lyricVariantIdx) || 0,
+      lyricOffset: Number(body.lyricOffset) || 0,
       now,
     });
     rooms.set(code, { state, subscribers: new Map(), hasJoined: false });

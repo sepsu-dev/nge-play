@@ -33,7 +33,7 @@ interface UseYoutubePlayerParams {
   pendingResumeRef: React.MutableRefObject<PendingResume | null>;
   onAdvanceTrack: (index: number, list: Track[]) => void;
   onTrackEnded?: () => boolean | void;
-  onPlayerPlaying?: () => void;
+  onPlayerPlaying?: (currentTime: number) => void;
   onSaveSession: (overrides?: { currentTime?: number; isPlaying?: boolean }, syncFlush?: boolean) => void;
 }
 
@@ -125,8 +125,9 @@ export function useYoutubePlayer({
       if (readyRef.current && playerRef.current?.loadVideoById) {
         loadingTargetIdRef.current = videoId;
         seenTransitionRef.current = false;
-        if (autoPlay) playerRef.current.loadVideoById(videoId, Math.floor(startSeconds));
-        else playerRef.current.cueVideoById?.(videoId, Math.floor(startSeconds));
+        const start = Math.max(0, Number(startSeconds.toFixed(2)));
+        if (autoPlay) playerRef.current.loadVideoById(videoId, start);
+        else playerRef.current.cueVideoById?.(videoId, start);
       } else {
         pendingResumeRef.current = { videoId, seekTo: startSeconds, autoPlay };
       }
@@ -242,7 +243,7 @@ export function useYoutubePlayer({
               wantAutoPlayRef.current = true;
               loadingTargetIdRef.current = action.videoId;
               seenTransitionRef.current = false;
-              e.target.loadVideoById(action.videoId, Math.floor(action.seekTo));
+              e.target.loadVideoById(action.videoId, Math.max(0, Number(action.seekTo.toFixed(2))));
               callbacksRef.current.setIsPlaying(true);
               return;
             }
@@ -250,7 +251,7 @@ export function useYoutubePlayer({
               wantAutoPlayRef.current = false;
               loadingTargetIdRef.current = action.videoId;
               seenTransitionRef.current = false;
-              e.target.cueVideoById(action.videoId, Math.floor(action.seekTo));
+              e.target.cueVideoById(action.videoId, Math.max(0, Number(action.seekTo.toFixed(2))));
               return;
             }
 
@@ -319,8 +320,9 @@ export function useYoutubePlayer({
               bgRetryCountRef.current = 0;
               wantAutoPlayRef.current = true;
               callbacksRef.current.setIsPlaying(true);
-              callbacksRef.current.onPlayerPlaying?.();
-              clock.set(e.target.getCurrentTime?.() || 0, e.target.getDuration?.() || 0);
+              const cur = e.target.getCurrentTime?.() || 0;
+              clock.set(cur, e.target.getDuration?.() || 0);
+              callbacksRef.current.onPlayerPlaying?.(cur);
             } else if (e.data === S.PAUSED) {
               if (loadingTargetIdRef.current) return;
               const now = Date.now();
@@ -556,6 +558,11 @@ export function useYoutubePlayer({
     return () => clearInterval(t);
   }, [isPlaying, activeTrackIdRef, clock]);
 
+  const getPlayerState = useCallback(
+    () => (readyRef.current ? (playerRef.current?.getPlayerState?.() ?? -1) : -1),
+    []
+  );
+
   return {
     loadVideo,
     playVideo,
@@ -564,6 +571,7 @@ export function useYoutubePlayer({
     seekTo,
     setPlayerVolume,
     setPlayerMuted,
+    getPlayerState,
   };
 }
 
