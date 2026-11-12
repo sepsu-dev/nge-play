@@ -136,7 +136,7 @@ export function shouldAttemptBackgroundResume({
   manualPauseAtMs,
   nowMs,
   retryCount,
-  maxRetries = 2,
+  maxRetries = 4,
 }: {
   isHidden: boolean;
   wasPlaying: boolean;
@@ -148,7 +148,7 @@ export function shouldAttemptBackgroundResume({
 }): boolean {
   if (!isHidden || !wasPlaying || retryCount >= maxRetries) return false;
   if (manualPauseAtMs > 0 && nowMs - manualPauseAtMs < 1500) return false;
-  return hiddenAtMs > 0 && nowMs - hiddenAtMs < 2500;
+  return hiddenAtMs > 0 && nowMs - hiddenAtMs < 5000;
 }
 
 export function shouldRestorePlayerAudio(

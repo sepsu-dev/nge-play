@@ -211,6 +211,17 @@ assert.equal(
     nowMs: 1800,
     retryCount: 2,
   }),
+  true
+);
+assert.equal(
+  shouldAttemptBackgroundResume({
+    isHidden: true,
+    wasPlaying: true,
+    hiddenAtMs: 1000,
+    manualPauseAtMs: 0,
+    nowMs: 1800,
+    retryCount: 4,
+  }),
   false,
   "retry budget cap prevents infinite loop"
 );
