@@ -8,6 +8,7 @@ import {
   resolveReadyAction,
   shouldAcceptPlayerEvent,
   shouldAttemptBackgroundResume,
+  shouldRestorePlayerAudio,
   type PendingResume,
 } from "@/lib/player-state";
 
@@ -114,17 +115,37 @@ export function useYoutubePlayer({
     }
   }, []);
 
+  const syncPlayerAudio = useCallback((player = playerRef.current) => {
+    if (!player) return;
+    const { muted: m, volume: v } = optsRef.current;
+    if (m) {
+      player.mute?.();
+      return;
+    }
+    const targetVol = v > 0 ? v : 80;
+    const curMuted = Boolean(player.isMuted?.());
+    const curVol = typeof player.getVolume === "function" ? Number(player.getVolume()) : targetVol;
+    if (curMuted || curVol <= 0 || curVol !== targetVol) {
+      player.unMute?.();
+      player.setVolume?.(targetVol);
+    }
+  }, []);
+
   const loadVideo = useCallback(
     (videoId: string, startSeconds = 0, autoPlay = true) => {
       manualPauseAtRef.current = 0;
       wantAutoPlayRef.current = autoPlay;
       bgRetryCountRef.current = 0;
       cuedRetryIdRef.current = "";
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+      }
       clearBgTimers();
       clock.set(startSeconds, 0);
       if (readyRef.current && playerRef.current?.loadVideoById) {
         loadingTargetIdRef.current = videoId;
         seenTransitionRef.current = false;
+        syncPlayerAudio(playerRef.current);
         const start = Math.max(0, Number(startSeconds.toFixed(2)));
         if (autoPlay) playerRef.current.loadVideoById(videoId, start);
         else playerRef.current.cueVideoById?.(videoId, start);
@@ -132,7 +153,7 @@ export function useYoutubePlayer({
         pendingResumeRef.current = { videoId, seekTo: startSeconds, autoPlay };
       }
     },
-    [clearBgTimers, clock, pendingResumeRef]
+    [clearBgTimers, clock, pendingResumeRef, syncPlayerAudio]
   );
 
   const playVideo = useCallback(() => {
@@ -140,9 +161,13 @@ export function useYoutubePlayer({
     wantAutoPlayRef.current = true;
     bgRetryCountRef.current = 0;
     clearBgTimers();
-    if (readyRef.current) playerRef.current?.playVideo?.();
-    else if (pendingResumeRef.current) pendingResumeRef.current.autoPlay = true;
-  }, [clearBgTimers, pendingResumeRef]);
+    if (readyRef.current) {
+      syncPlayerAudio(playerRef.current);
+      playerRef.current?.playVideo?.();
+    } else if (pendingResumeRef.current) {
+      pendingResumeRef.current.autoPlay = true;
+    }
+  }, [clearBgTimers, pendingResumeRef, syncPlayerAudio]);
 
   const pauseVideo = useCallback(() => {
     manualPauseAtRef.current = Date.now();
@@ -228,13 +253,13 @@ export function useYoutubePlayer({
           modestbranding: 1,
           rel: 0,
           playsinline: 1,
+          enablejsapi: 1,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
         },
         events: {
           onReady: (e: any) => {
             readyRef.current = true;
-            const { muted: m, volume: v } = optsRef.current;
-            if (m) e.target.mute();
-            else e.target.setVolume(v);
+            syncPlayerAudio(e.target);
 
             const action = resolveReadyAction(initVideoIdRef.current, pendingResumeRef.current);
             pendingResumeRef.current = null;
@@ -311,6 +336,7 @@ export function useYoutubePlayer({
               cuedTimerRef.current = setTimeout(() => {
                 cuedTimerRef.current = null;
                 if (wantAutoPlayRef.current && readyRef.current) {
+                  syncPlayerAudio(playerRef.current);
                   playerRef.current?.playVideo?.();
                 }
               }, 180);
@@ -319,6 +345,7 @@ export function useYoutubePlayer({
               clearBgTimers();
               bgRetryCountRef.current = 0;
               wantAutoPlayRef.current = true;
+              syncPlayerAudio(e.target);
               callbacksRef.current.setIsPlaying(true);
               const cur = e.target.getCurrentTime?.() || 0;
               clock.set(cur, e.target.getDuration?.() || 0);
@@ -347,6 +374,7 @@ export function useYoutubePlayer({
                   bgRetryTimerRef.current = null;
                   if (!readyRef.current || !playerRef.current || !optsRef.current.isPlaying) return;
                   if (Date.now() - manualPauseAtRef.current < 1500) return;
+                  syncPlayerAudio(playerRef.current);
                   playerRef.current.playVideo?.();
                 }, attempt === 0 ? 250 : 700);
                 if (!bgGraceTimerRef.current) {
@@ -354,7 +382,23 @@ export function useYoutubePlayer({
                     bgGraceTimerRef.current = null;
                     if (!readyRef.current || !playerRef.current) return;
                     const st = playerRef.current.getPlayerState?.();
-                    if (st !== 1 && st !== 3) {
+                    if (st === 3) {
+                      syncPlayerAudio(playerRef.current);
+                      playerRef.current.playVideo?.();
+                      bgGraceTimerRef.current = setTimeout(() => {
+                        bgGraceTimerRef.current = null;
+                        if (!readyRef.current || !playerRef.current) return;
+                        if (playerRef.current.getPlayerState?.() !== 1) {
+                          wantAutoPlayRef.current = false;
+                          callbacksRef.current.setIsPlaying(false);
+                          const t = playerRef.current.getCurrentTime?.() || 0;
+                          clock.set(t);
+                          callbacksRef.current.onSaveSession({ currentTime: t, isPlaying: false }, true);
+                        }
+                      }, 1800);
+                      return;
+                    }
+                    if (st !== 1) {
                       wantAutoPlayRef.current = false;
                       callbacksRef.current.setIsPlaying(false);
                       const t = playerRef.current.getCurrentTime?.() || 0;
@@ -419,6 +463,7 @@ export function useYoutubePlayer({
     currentIndexRef,
     pendingResumeRef,
     queueRef,
+    syncPlayerAudio,
   ]);
 
   useEffect(() => {
@@ -473,9 +518,12 @@ export function useYoutubePlayer({
           });
         } catch {}
       }
-      if (st === 1 && !optsRef.current.isPlaying) {
-        wantAutoPlayRef.current = true;
-        callbacksRef.current.setIsPlaying(true);
+      if (st === 1) {
+        syncPlayerAudio(playerRef.current);
+        if (!optsRef.current.isPlaying) {
+          wantAutoPlayRef.current = true;
+          callbacksRef.current.setIsPlaying(true);
+        }
       } else if (st === 2 && optsRef.current.isPlaying) {
         wantAutoPlayRef.current = false;
         callbacksRef.current.setIsPlaying(false);
@@ -491,13 +539,15 @@ export function useYoutubePlayer({
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [activeTrackIdRef, clearBgTimers, clock, pendingResumeRef]);
+  }, [activeTrackIdRef, clearBgTimers, clock, pendingResumeRef, syncPlayerAudio]);
 
   useEffect(() => {
     if (!isPlaying) return;
     let lastMs = Date.now();
     let accSec = 0;
     let lastPosSyncMs = 0;
+    let lastAudioCheckMs = 0;
+    let pausedSinceMs = 0;
     let lastRawYt = -1;
     let syncYtSec = playerRef.current?.getCurrentTime?.() || 0;
     let syncPerfMs = performance.now();
@@ -513,7 +563,39 @@ export function useYoutubePlayer({
       const raw = playerRef.current.getCurrentTime() || 0;
       const d = playerRef.current.getDuration?.() || 0;
       const rate = playerRef.current.getPlaybackRate?.() || 1;
+      const now = Date.now();
       const pNow = performance.now();
+
+      if (st === 1) {
+        pausedSinceMs = 0;
+        if (now - lastAudioCheckMs >= 1000) {
+          lastAudioCheckMs = now;
+          const pMuted = Boolean(playerRef.current.isMuted?.());
+          const pVol =
+            typeof playerRef.current.getVolume === "function"
+              ? Number(playerRef.current.getVolume())
+              : optsRef.current.volume;
+          if (shouldRestorePlayerAudio(pMuted, pVol, optsRef.current.muted, optsRef.current.volume)) {
+            syncPlayerAudio(playerRef.current);
+          }
+        }
+      } else if (
+        st === 2 &&
+        !loadingTargetIdRef.current &&
+        !bgRetryTimerRef.current &&
+        !bgGraceTimerRef.current
+      ) {
+        if (!pausedSinceMs) pausedSinceMs = now;
+        else if (now - pausedSinceMs >= 1500) {
+          wantAutoPlayRef.current = false;
+          callbacksRef.current.setIsPlaying(false);
+          clock.set(raw);
+          callbacksRef.current.onSaveSession({ currentTime: raw, isPlaying: false }, true);
+          return;
+        }
+      } else {
+        pausedSinceMs = 0;
+      }
 
       let sec: number;
       if (st !== 1 || Math.abs(raw - lastRawYt) > 0.001) {
@@ -529,7 +611,6 @@ export function useYoutubePlayer({
       const nextTime = Math.max(0, sec);
       clock.set(nextTime, d > 0 ? d : undefined);
 
-      const now = Date.now();
       if (
         d > 0 &&
         now - lastPosSyncMs >= 1000 &&
@@ -556,7 +637,7 @@ export function useYoutubePlayer({
     }, 80);
 
     return () => clearInterval(t);
-  }, [isPlaying, activeTrackIdRef, clock]);
+  }, [isPlaying, activeTrackIdRef, clock, syncPlayerAudio]);
 
   const getPlayerState = useCallback(
     () => (readyRef.current ? (playerRef.current?.getPlayerState?.() ?? -1) : -1),

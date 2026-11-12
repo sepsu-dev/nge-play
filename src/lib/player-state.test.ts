@@ -8,6 +8,7 @@ import {
   resolveTrackSwitch,
   shouldAcceptPlayerEvent,
   shouldAttemptBackgroundResume,
+  shouldRestorePlayerAudio,
 } from "@/lib/player-state";
 import {
   applyRoomCommand,
@@ -213,5 +214,11 @@ assert.equal(
   false,
   "retry budget cap prevents infinite loop"
 );
+
+// 10. Silent-playback audio restore guard
+assert.equal(shouldRestorePlayerAudio(true, 80, false, 80), true);
+assert.equal(shouldRestorePlayerAudio(false, 0, false, 80), true);
+assert.equal(shouldRestorePlayerAudio(false, 80, false, 80), false);
+assert.equal(shouldRestorePlayerAudio(true, 0, true, 80), false);
 
 console.log("ALL_PLAYER_STATE_CHECKS_PASSED");

@@ -150,3 +150,13 @@ export function shouldAttemptBackgroundResume({
   if (manualPauseAtMs > 0 && nowMs - manualPauseAtMs < 1500) return false;
   return hiddenAtMs > 0 && nowMs - hiddenAtMs < 2500;
 }
+
+export function shouldRestorePlayerAudio(
+  playerMuted: boolean,
+  playerVolume: number,
+  userMuted: boolean,
+  userVolume: number
+): boolean {
+  if (userMuted) return false;
+  return playerMuted || (userVolume > 0 && playerVolume <= 0);
+}
