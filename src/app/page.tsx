@@ -205,10 +205,6 @@ export default function NgePlayPage() {
         onCreate={s.createCustomPlaylist}
       />
 
-      <div className="fixed right-3 bottom-20 opacity-0 pointer-events-none w-[320px] h-[180px]">
-        <div id="yt-audio-player" />
-      </div>
-
       <NowPlayingModal
         open={s.nowPlayingOpen}
         currentTrack={s.currentTrack}
