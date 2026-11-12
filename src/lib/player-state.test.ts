@@ -9,7 +9,16 @@ import {
   shouldAcceptPlayerEvent,
   shouldAttemptBackgroundResume,
 } from "@/lib/player-state";
-import { applyRoomCommand, computeRoomTime, createRoomState, makeRoomCode } from "@/lib/room";
+import {
+  applyRoomCommand,
+  computeRoomTime,
+  createRoomState,
+  generateMemberIcon,
+  generateMemberName,
+  makeRoomCode,
+  parseMemberIcon,
+  sanitizeMemberName,
+} from "@/lib/room";
 
 const makeTrack = (id: string): Track => ({
   id,
@@ -71,6 +80,14 @@ assert.deepEqual(
   resolveReadyAction("vid_A", { videoId: "vid_A", seekTo: 42, autoPlay: true }),
   { type: "resume_initial", seekTo: 42, autoPlay: true }
 );
+assert.deepEqual(
+  resolveReadyAction("vid_A", { videoId: "vid_A", seekTo: 42, autoPlay: false }),
+  { type: "resume_initial", seekTo: 42, autoPlay: false }
+);
+assert.deepEqual(
+  resolveReadyAction("vid_A", { videoId: "vid_B", seekTo: 42, autoPlay: false }),
+  { type: "cue", videoId: "vid_B", seekTo: 42 }
+);
 
 // 6. Stale player events during track switch must be rejected
 assert.equal(shouldAcceptPlayerEvent("vid_A", "vid_B", "vid_B", 2, false), false);
@@ -84,6 +101,8 @@ assert.equal(shouldAcceptPlayerEvent("vid_B", "vid_B", null, 1, false), true);
 const room0 = createRoomState({
   code: "ABC123",
   clientId: "u1",
+  clientName: "  Chill   Panda  ",
+  clientIcon: "fox",
   queue: [a, b, c],
   currentIndex: 0,
   currentTime: 10,
@@ -91,6 +110,13 @@ const room0 = createRoomState({
   now: 1000,
 });
 assert.equal(computeRoomTime(room0, 6000), 15);
+assert.deepEqual(room0.members, [{ id: "u1", name: "Chill Panda", icon: "fox" }]);
+assert.equal(sanitizeMemberName("   "), "");
+assert.equal(sanitizeMemberName("  A".repeat(20)).length, 24);
+assert.equal(generateMemberName().includes(" "), true);
+assert.equal(parseMemberIcon("fox"), "fox");
+assert.equal(parseMemberIcon("invalid_icon"), null);
+assert.notEqual(parseMemberIcon(generateMemberIcon()), null);
 
 const paused = applyRoomCommand(room0, { type: "pause" }, "u2", 6000);
 assert.equal(paused.changed, true);

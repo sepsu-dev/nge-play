@@ -44,7 +44,6 @@ export interface ChannelVideosResult {
   channel: ChannelInfo;
   tracks: Track[];
   continuation?: string;
-  apiKey?: string;
 }
 
 export interface LyricLine {
@@ -637,7 +636,6 @@ export async function resolveChannelFromVideo(videoId: string): Promise<string |
 export async function fetchYouTubeChannel(
   channelId: string,
   continuation?: string,
-  _apiKey?: string,
   knownTitle?: string
 ): Promise<ChannelVideosResult | null> {
   if (!channelId) return null;
@@ -819,9 +817,12 @@ function scoreLyricCandidate(
   }
 
   if (artist && candArtist) {
-    const artistTokens = artist.split(/[,&x/]+/i).map(normText).filter((t) => t.length >= 2);
+    const artistTokens = artist
+      .split(/(?:\s*[,&/]\s*|\s+x\s+)/i)
+      .map(normText)
+      .filter((t) => t.length >= 2);
     const matched = artistTokens.some((tok) => candArtist.includes(tok) || tok.includes(candArtist));
-    score += matched ? 55 : fromTitle ? -30 : -10;
+    score += matched ? 55 : fromTitle ? -65 : -55;
   }
 
   if (targetDurSec && targetDurSec > 0 && typeof item.duration === "number" && item.duration > 0) {
@@ -847,8 +848,9 @@ function scoreLyricCandidate(
       if (typeof item.duration === "number" && item.duration > 0 && lastTs > item.duration + 10) {
         score -= 150;
       }
-      if (targetDurSec && targetDurSec > 0 && lastTs > targetDurSec + 10) {
-        score -= 140;
+      if (targetDurSec && targetDurSec > 0) {
+        if (lastTs > targetDurSec + 10) score -= 160;
+        else if (targetDurSec >= 90 && lastTs < targetDurSec * 0.35) score -= 90;
       }
     }
     const bilingualCount = parsedLines.filter((l) => /\S\^\S/.test(l.text)).length;
@@ -867,9 +869,9 @@ function parseLrc(raw: string): LyricLine[] {
   const offsetSec = offsetMatch ? Number(offsetMatch[1]) / 1000 : 0;
   const lines: LyricLine[] = [];
   for (const row of raw.split(/\r?\n/)) {
-    const matches = [...row.matchAll(/\[(\d+):(\d{2})(?:\.(\d{1,3}))?\]/g)];
+    const matches = [...row.matchAll(/\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/g)];
     if (!matches.length) continue;
-    const text = row.replace(/\[\d+:\d{2}(?:\.\d{1,3})?\]/g, "").trim();
+    const text = row.replace(/\[\d+:\d{2}(?:[.:]\d{1,3})?\]/g, "").trim();
     if (!text) continue;
     for (const m of matches) {
       const min = Number(m[1]);

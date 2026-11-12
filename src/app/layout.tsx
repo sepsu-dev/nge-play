@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
-import NextTopLoader from "nextjs-toploader";
 import { Toaster } from "sonner";
 import { PwaRegister } from "@/components/pwa/pwa-install";
 import "@/app/globals.css";
@@ -46,7 +45,6 @@ export default function RootLayout({
     <html lang="en" className={plusJakartaSans.variable}>
       <body className="antialiased font-sans min-h-screen bg-white text-[#18181B]">
         <PwaRegister />
-        <NextTopLoader showSpinner={false} color="#FFD014" />
         {children}
         <Toaster position="top-center" theme="light" richColors />
       </body>

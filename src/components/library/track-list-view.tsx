@@ -41,6 +41,27 @@ interface TrackListViewProps {
   onLoadMoreChannel: () => void;
 }
 
+function TrackRowSkeleton() {
+  return (
+    <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_80px_52px_64px] items-center gap-3 px-3 py-2.5 animate-pulse">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0" />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="h-3.5 w-3/5 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+          <div className="sm:hidden h-3 w-2/5 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+        </div>
+      </div>
+      <div className="hidden sm:block h-3 w-2/3 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+      <div className="hidden md:block h-3 w-12 ml-auto rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+      <div className="hidden sm:block h-3 w-9 ml-auto rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+      <div className="flex items-center justify-end gap-1.5">
+        <div className="w-6 h-6 rounded-lg bg-[#F3F4F6] dark:bg-[#1E222D]" />
+        <div className="w-6 h-6 rounded-lg bg-[#F3F4F6] dark:bg-[#1E222D]" />
+      </div>
+    </div>
+  );
+}
+
 export function TrackListView({
   tab,
   searching,
@@ -132,8 +153,10 @@ export function TrackListView({
                 <span>
                   {[channelInfo.handle, channelInfo.subscribers, channelInfo.videoCount]
                     .filter(Boolean)
-                    .join(" · ") || "YouTube Music artist"}
+                    .join(" · ") || "Artist"}
                 </span>
+              ) : searching && displayedTracks.length === 0 ? (
+                <span>Loading...</span>
               ) : (
                 <>
                   <span>{displayedTracks.length} tracks</span>
@@ -211,10 +234,7 @@ export function TrackListView({
 
       <div className="divide-y divide-[#F3F4F6] dark:divide-white/[0.05]">
         {searching ? (
-          <div className="flex flex-col items-center justify-center py-20 text-[#6B7280] dark:text-[#9CA3AF] gap-3">
-            <Loader2 className="w-6 h-6 animate-spin text-[#FFD014]" />
-            <p className="text-xs font-medium">Loading music from YouTube Music...</p>
-          </div>
+          [0, 1, 2, 3, 4, 5, 6, 7].map((i) => <TrackRowSkeleton key={i} />)
         ) : displayedTracks.length === 0 ? (
           <div className="text-center py-16 text-[#9CA3AF] dark:text-[#6B7280] text-xs">
             No tracks in this list yet.
@@ -302,16 +322,19 @@ export function TrackListView({
           })
         )}
         {tab === "artists" && channelCont && (
-          <div className="py-4 flex justify-center">
-            <button
-              onClick={onLoadMoreChannel}
-              disabled={loadingMore}
-              className="px-4 py-2 rounded-full border border-[#E5E7EB] dark:border-white/[0.08] bg-white dark:bg-[#161922] hover:bg-[#F7F8FA] dark:hover:bg-[#1B1F2A] text-xs font-semibold text-[#18181B] dark:text-white flex items-center gap-2 cursor-pointer disabled:opacity-60"
-            >
-              {loadingMore && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FFD014]" />}
-              <span>{loadingMore ? "Loading tracks..." : "Load More"}</span>
-            </button>
-          </div>
+          <>
+            {loadingMore && [0, 1, 2].map((i) => <TrackRowSkeleton key={`more-${i}`} />)}
+            <div className="py-4 flex justify-center">
+              <button
+                onClick={onLoadMoreChannel}
+                disabled={loadingMore}
+                className="px-4 py-2 rounded-full border border-[#E5E7EB] dark:border-white/[0.08] bg-white dark:bg-[#161922] hover:bg-[#F7F8FA] dark:hover:bg-[#1B1F2A] text-xs font-semibold text-[#18181B] dark:text-white flex items-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                {loadingMore && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FFD014]" />}
+                <span>{loadingMore ? "Loading..." : "Load More"}</span>
+              </button>
+            </div>
+          </>
         )}
       </div>
     </>

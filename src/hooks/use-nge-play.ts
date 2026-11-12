@@ -32,7 +32,18 @@ import {
   type SessionSnapshot,
   type TabId,
 } from "@/lib/player-state";
-import { computeRoomTime, sanitizeRoomCode, type RoomCommand, type RoomState } from "@/lib/room";
+import {
+  MEMBER_ICON_IDS,
+  computeRoomTime,
+  generateMemberIcon,
+  generateMemberName,
+  parseMemberIcon,
+  sanitizeMemberName,
+  sanitizeRoomCode,
+  type MemberIconId,
+  type RoomCommand,
+  type RoomState,
+} from "@/lib/room";
 import {
   flushSessionSync,
   readStored,
@@ -84,7 +95,6 @@ export function useNgePlay() {
   const [channelInfo, setChannelInfo] = useState<ChannelInfo | null>(null);
   const [channelTracks, setChannelTracks] = useState<Track[]>([]);
   const [channelCont, setChannelCont] = useState<string | undefined>();
-  const [channelApiKey, setChannelApiKey] = useState<string | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
 
   const [lyrics, setLyrics] = useState<LyricsResult | null>(null);
@@ -111,6 +121,9 @@ export function useNgePlay() {
   const [room, setRoom] = useState<RoomState | null>(null);
   const [roomModalOpen, setRoomModalOpen] = useState(false);
   const [roomBusy, setRoomBusy] = useState(false);
+  const [memberId, setMemberId] = useState("");
+  const [memberName, setMemberName] = useState("");
+  const [memberIcon, setMemberIcon] = useState<MemberIconId>(MEMBER_ICON_IDS[0]);
 
   const clockRef = useRef<ClockStore | null>(null);
   if (!clockRef.current) clockRef.current = createClockStore();
@@ -123,6 +136,8 @@ export function useNgePlay() {
   const pendingResumeRef = useRef<PendingResume | null>(null);
   const roomRef = useRef<RoomState | null>(null);
   const clientIdRef = useRef("");
+  const memberNameRef = useRef("");
+  const memberIconRef = useRef<MemberIconId | "">("");
   const clockOffsetRef = useRef(0);
   const lastAppliedVersionRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -172,7 +187,9 @@ export function useNgePlay() {
         currentIndex: idx,
         activeTrackId: overrides?.activeTrackId ?? q[idx]?.id,
         currentTime: overrides?.currentTime ?? clock.getSnapshot().currentTime,
-        isPlaying: overrides?.isPlaying ?? s.isPlaying,
+        isPlaying:
+          overrides?.isPlaying ??
+          (pendingResumeRef.current ? pendingResumeRef.current.autoPlay : s.isPlaying),
         volume: overrides?.volume ?? s.volume,
         muted: overrides?.muted ?? s.muted,
         repeat: overrides?.repeat ?? s.repeat,
@@ -207,12 +224,48 @@ export function useNgePlay() {
 
   const getClientId = useCallback(() => {
     if (!clientIdRef.current) {
-      clientIdRef.current =
+      const id =
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
           : `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      clientIdRef.current = id;
+      setMemberId(id);
     }
     return clientIdRef.current;
+  }, []);
+
+  const getMemberName = useCallback(() => {
+    if (memberNameRef.current) return memberNameRef.current;
+    let name = "";
+    try {
+      name = sanitizeMemberName(localStorage.getItem("ngeplay_member_name") || "");
+    } catch {}
+    if (!name) {
+      name = generateMemberName();
+      try {
+        localStorage.setItem("ngeplay_member_name", name);
+      } catch {}
+    }
+    memberNameRef.current = name;
+    setMemberName(name);
+    return name;
+  }, []);
+
+  const getMemberIcon = useCallback((): MemberIconId => {
+    if (memberIconRef.current) return memberIconRef.current;
+    let icon: MemberIconId | null = null;
+    try {
+      icon = parseMemberIcon(localStorage.getItem("ngeplay_member_icon"));
+    } catch {}
+    if (!icon) {
+      icon = generateMemberIcon();
+      try {
+        localStorage.setItem("ngeplay_member_icon", icon);
+      } catch {}
+    }
+    memberIconRef.current = icon;
+    setMemberIcon(icon);
+    return icon;
   }, []);
 
   const syncClockOffset = useCallback((serverNow: number, t0?: number) => {
@@ -293,7 +346,11 @@ export function useNgePlay() {
     (code: string) => {
       eventSourceRef.current?.close();
       const es = new EventSource(
-        `/api/room?code=${encodeURIComponent(code)}&clientId=${encodeURIComponent(getClientId())}`
+        `/api/room?code=${encodeURIComponent(code)}&clientId=${encodeURIComponent(
+          getClientId()
+        )}&name=${encodeURIComponent(getMemberName())}&icon=${encodeURIComponent(
+          getMemberIcon()
+        )}`
       );
       eventSourceRef.current = es;
       es.addEventListener("state", (ev) => {
@@ -313,7 +370,7 @@ export function useNgePlay() {
         }
       };
     },
-    [applyRoomSnapshot, clearRoomLocal, getClientId, syncClockOffset]
+    [applyRoomSnapshot, clearRoomLocal, getClientId, getMemberIcon, getMemberName, syncClockOffset]
   );
 
   const sendRoomCommand = useCallback(
@@ -357,6 +414,8 @@ export function useNgePlay() {
         body: JSON.stringify({
           type: "create",
           clientId: getClientId(),
+          name: getMemberName(),
+          icon: getMemberIcon(),
           queue: q,
           currentIndex: queueRef.current.length ? currentIndexRef.current : 0,
           currentTime: queueRef.current.length ? clock.getSnapshot().currentTime : 0,
@@ -377,7 +436,7 @@ export function useNgePlay() {
     } finally {
       setRoomBusy(false);
     }
-  }, [clock, connectRoomStream, getClientId, results, syncClockOffset, trending]);
+  }, [clock, connectRoomStream, getClientId, getMemberIcon, getMemberName, results, syncClockOffset, trending]);
 
   const joinRoom = useCallback(
     async (rawCode: string, silent = false): Promise<boolean> => {
@@ -389,7 +448,13 @@ export function useNgePlay() {
         const res = await fetch("/api/room", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "join", code, clientId: getClientId() }),
+          body: JSON.stringify({
+            type: "join",
+            code,
+            clientId: getClientId(),
+            name: getMemberName(),
+            icon: getMemberIcon(),
+          }),
         });
         if (!res.ok) {
           if (silent) setRoomUrlParam(null);
@@ -411,7 +476,79 @@ export function useNgePlay() {
         setRoomBusy(false);
       }
     },
-    [applyRoomSnapshot, connectRoomStream, getClientId, syncClockOffset]
+    [applyRoomSnapshot, connectRoomStream, getClientId, getMemberIcon, getMemberName, syncClockOffset]
+  );
+
+  const updateMemberProfile = useCallback(
+    async (patch: { name?: string; icon?: MemberIconId }): Promise<boolean> => {
+      const nextName = patch.name !== undefined ? sanitizeMemberName(patch.name) : undefined;
+      if (patch.name !== undefined && !nextName) {
+        toast.error("Name cannot be empty");
+        return false;
+      }
+      const nextIcon = patch.icon !== undefined ? parseMemberIcon(patch.icon) : undefined;
+      if (patch.icon !== undefined && !nextIcon) return false;
+
+      if (nextName) {
+        memberNameRef.current = nextName;
+        setMemberName(nextName);
+        try {
+          localStorage.setItem("ngeplay_member_name", nextName);
+        } catch {}
+      }
+      if (nextIcon) {
+        memberIconRef.current = nextIcon;
+        setMemberIcon(nextIcon);
+        try {
+          localStorage.setItem("ngeplay_member_icon", nextIcon);
+        } catch {}
+      }
+
+      const cur = roomRef.current;
+      if (!cur) {
+        toast.success(nextName ? "Name updated" : "Avatar updated");
+        return true;
+      }
+      const t0 = Date.now();
+      try {
+        const res = await fetch("/api/room", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "rename",
+            code: cur.code,
+            clientId: getClientId(),
+            ...(nextName ? { name: nextName } : {}),
+            ...(nextIcon ? { icon: nextIcon } : {}),
+          }),
+        });
+        if (res.status === 404) {
+          clearRoomLocal();
+          toast.error("Room not found");
+          return false;
+        }
+        if (!res.ok) throw new Error();
+        const data = (await res.json()) as { room: RoomState; serverNow: number };
+        syncClockOffset(data.serverNow, t0);
+        applyRoomSnapshot(data.room, data.serverNow);
+        toast.success(nextName ? "Name updated" : "Avatar updated");
+        return true;
+      } catch {
+        toast.error("Failed to update profile");
+        return false;
+      }
+    },
+    [applyRoomSnapshot, clearRoomLocal, getClientId, syncClockOffset]
+  );
+
+  const updateMemberName = useCallback(
+    (rawName: string) => updateMemberProfile({ name: rawName }),
+    [updateMemberProfile]
+  );
+
+  const updateMemberIcon = useCallback(
+    (icon: MemberIconId) => updateMemberProfile({ icon }),
+    [updateMemberProfile]
   );
 
   const leaveRoom = useCallback(() => {
@@ -609,6 +746,9 @@ export function useNgePlay() {
   useEffect(() => {
     let cancelled = false;
     requestPersistentStorage();
+    getClientId();
+    getMemberName();
+    getMemberIcon();
 
     async function boot() {
       const explorePromise = fetchYouTubeExplore();
@@ -743,7 +883,7 @@ export function useNgePlay() {
     return () => {
       cancelled = true;
     };
-  }, [clock]);
+  }, [clock, getClientId, getMemberIcon, getMemberName]);
 
   useEffect(() => {
     saveSession();
@@ -755,19 +895,42 @@ export function useNgePlay() {
   useEffect(() => {
     if (!currentTrack?.id) return;
     let cancelled = false;
-    setLoadingLyrics(true);
+    let fetchedDur = fallbackRoundDur || Math.round(clock.getSnapshot().duration) || 0;
     setLyrics(null);
     setLyricVariantIdx(0);
-    const durForLookup = fallbackRoundDur || Math.round(clock.getSnapshot().duration) || undefined;
-    fetchTrackLyrics(currentTrack.title, currentTrack.channel, durForLookup)
-      .then((res) => {
-        if (!cancelled) setLyrics(res);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingLyrics(false);
-      });
+
+    const runFetch = (dur?: number) => {
+      setLoadingLyrics(true);
+      fetchTrackLyrics(currentTrack.title, currentTrack.channel, dur)
+        .then((res) => {
+          if (!cancelled) setLyrics(res);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingLyrics(false);
+        });
+    };
+
+    runFetch(fetchedDur || undefined);
+
+    if (fetchedDur > 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const unsub = clock.subscribe(() => {
+      if (cancelled) return;
+      const liveDur = Math.round(clock.getSnapshot().duration);
+      if (liveDur > 0 && fetchedDur === 0) {
+        fetchedDur = liveDur;
+        unsub();
+        runFetch(liveDur);
+      }
+    });
+
     return () => {
       cancelled = true;
+      unsub();
     };
   }, [currentTrack?.id, currentTrack?.title, currentTrack?.channel, fallbackRoundDur, clock]);
 
@@ -883,7 +1046,7 @@ export function useNgePlay() {
         setTab("home");
         return;
       }
-      const data = await fetchYouTubeChannel(cid, undefined, undefined, knownName);
+      const data = await fetchYouTubeChannel(cid, undefined, knownName);
       if (!data) {
         toast.error("Failed to load artist tracks");
         setTab("home");
@@ -892,7 +1055,6 @@ export function useNgePlay() {
       setChannelInfo(data.channel);
       setChannelTracks(data.tracks);
       setChannelCont(data.continuation);
-      setChannelApiKey(data.apiKey);
     } finally {
       setSearching(false);
     }
@@ -922,7 +1084,6 @@ export function useNgePlay() {
       const more = await fetchYouTubeChannel(
         channelInfo.id,
         channelCont,
-        channelApiKey,
         channelInfo.title
       );
       if (more?.tracks.length) {
@@ -949,7 +1110,7 @@ export function useNgePlay() {
     try {
       const data = await fetchYouTubeExplore(pl.id);
       if (data.tracks.length) setResults(data.tracks);
-      else toast.error("Failed to load YouTube Music playlist");
+      else toast.error("Failed to load playlist");
     } finally {
       setSearching(false);
     }
@@ -970,7 +1131,7 @@ export function useNgePlay() {
     setHeroTitle(`Results: ${q}`);
     try {
       const items = await searchYouTube(q);
-      if (!items.length) toast.error("No tracks found on YouTube Music");
+      if (!items.length) toast.error("No tracks found");
       else setResults(items);
     } finally {
       setSearching(false);
@@ -1113,9 +1274,14 @@ export function useNgePlay() {
     roomModalOpen,
     setRoomModalOpen,
     roomBusy,
+    memberId,
+    memberName,
+    memberIcon,
     createRoom,
     joinRoom,
     leaveRoom,
+    updateMemberName,
+    updateMemberIcon,
     playTrackAt,
     playTrackNow,
     playAll,

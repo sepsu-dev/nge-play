@@ -121,9 +121,9 @@ export default function NgePlayPage() {
                 }}
               />
             ) : s.tab === "albums" && !s.activeAlbum ? (
-              <AlbumsGrid albums={s.albums} onOpenAlbum={s.openAlbum} />
+              <AlbumsGrid loading={s.searching} albums={s.albums} onOpenAlbum={s.openAlbum} />
             ) : s.tab === "artists" && !s.channelInfo ? (
-              <ArtistsGrid artists={s.artists} onOpenArtist={s.openChannel} />
+              <ArtistsGrid loading={s.searching} artists={s.artists} onOpenArtist={s.openChannel} />
             ) : s.tab === "library" ? (
               <LibraryView
                 likedCount={s.liked.length}
@@ -229,10 +229,15 @@ export default function NgePlayPage() {
         open={s.roomModalOpen}
         room={s.room}
         busy={s.roomBusy}
+        memberId={s.memberId}
+        memberName={s.memberName}
+        memberIcon={s.memberIcon}
         onClose={() => s.setRoomModalOpen(false)}
         onCreateRoom={s.createRoom}
         onJoinRoom={s.joinRoom}
         onLeaveRoom={s.leaveRoom}
+        onUpdateName={s.updateMemberName}
+        onUpdateIcon={s.updateMemberIcon}
       />
 
       {/* ponytail: opacity-[0.01] avoids Chromium occlusion throttling without showing video */}

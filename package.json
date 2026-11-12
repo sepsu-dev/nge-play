@@ -11,13 +11,11 @@
     "@tailwindcss/postcss": "^4.3.5",
     "lucide-react": "^1.72.0",
     "next": "16.2.2",
-    "nextjs-toploader": "^3.9.17",
     "postcss": "^8.5.32",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "sonner": "^2.0.8",
-    "tailwindcss": "^4.3.5",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss": "^4.3.5"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
@@ -25,13 +23,5 @@
     "@types/react-dom": "^19.3.0",
     "babel-plugin-react-compiler": "1.0.0",
     "typescript": "^5.9.3"
-  },
-  "ignoreScripts": [
-    "sharp",
-    "unrs-resolver"
-  ],
-  "trustedDependencies": [
-    "sharp",
-    "unrs-resolver"
-  ]
+  }
 }

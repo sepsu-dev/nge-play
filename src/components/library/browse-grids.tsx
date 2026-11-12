@@ -6,9 +6,11 @@ import { TrackCover } from "@/components/library/track-cover";
 import type { CustomPlaylist } from "@/lib/player-state";
 
 export function AlbumsGrid({
+  loading = false,
   albums,
   onOpenAlbum,
 }: {
+  loading?: boolean;
   albums: AlbumSummary[];
   onOpenAlbum: (album: AlbumSummary) => void;
 }) {
@@ -18,7 +20,15 @@ export function AlbumsGrid({
         Albums
       </h1>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
-        {albums.map((alb) => (
+        {loading && !albums.length
+          ? [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <div key={i} className="space-y-2.5">
+                <div className="aspect-square rounded-[20px] bg-[#F7F8FA] dark:bg-[#161922] animate-pulse" />
+                <div className="h-3.5 w-3/4 rounded bg-[#F7F8FA] dark:bg-[#161922] animate-pulse" />
+                <div className="h-3 w-1/2 rounded bg-[#F7F8FA] dark:bg-[#161922] animate-pulse" />
+              </div>
+            ))
+          : albums.map((alb) => (
           <div
             key={alb.id}
             onClick={() => onOpenAlbum(alb)}
@@ -44,9 +54,11 @@ export function AlbumsGrid({
 }
 
 export function ArtistsGrid({
+  loading = false,
   artists,
   onOpenArtist,
 }: {
+  loading?: boolean;
   artists: ArtistSummary[];
   onOpenArtist: (artist: Track | ArtistSummary | string, e?: React.MouseEvent) => void;
 }) {
@@ -56,7 +68,20 @@ export function ArtistsGrid({
         Popular Artists
       </h1>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
-        {artists.map((art) => (
+        {loading && !artists.length
+          ? [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <div
+                key={i}
+                className="p-4 rounded-[22px] bg-[#F7F8FA] dark:bg-[#161922] flex flex-col items-center gap-3 animate-pulse"
+              >
+                <div className="w-24 h-24 rounded-full bg-[#EAECEF] dark:bg-[#1E222D]" />
+                <div className="w-full flex flex-col items-center gap-1.5">
+                  <div className="h-3.5 w-2/3 rounded bg-[#EAECEF] dark:bg-[#1E222D]" />
+                  <div className="h-3 w-1/2 rounded bg-[#EAECEF] dark:bg-[#1E222D]" />
+                </div>
+              </div>
+            ))
+          : artists.map((art) => (
           <div
             key={art.id}
             onClick={(e) => onOpenArtist(art, e)}
@@ -70,7 +95,7 @@ export function ArtistsGrid({
                 {art.name}
               </p>
               <p className="text-xs text-[#9CA3AF] truncate mt-0.5">
-                {art.subscribers || "YouTube Music Artist"}
+                {art.subscribers || "Artist"}
               </p>
             </div>
           </div>

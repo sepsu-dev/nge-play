@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type { Track } from "@/actions/youtube";
-import { formatTime } from "@/lib/format";
 import type { ClockStore } from "@/lib/playback-clock";
 import {
   resolveReadyAction,
@@ -69,6 +68,7 @@ export function useYoutubePlayer({
 }: UseYoutubePlayerParams) {
   const playerRef = useRef<any>(null);
   const initVideoIdRef = useRef<string>("");
+  const initStartSecRef = useRef(0);
   const readyRef = useRef(false);
   const loadingTargetIdRef = useRef<string | null>(null);
   const seenTransitionRef = useRef(false);
@@ -121,6 +121,7 @@ export function useYoutubePlayer({
       bgRetryCountRef.current = 0;
       cuedRetryIdRef.current = "";
       clearBgTimers();
+      clock.set(startSeconds, 0);
       if (readyRef.current && playerRef.current?.loadVideoById) {
         loadingTargetIdRef.current = videoId;
         seenTransitionRef.current = false;
@@ -130,7 +131,7 @@ export function useYoutubePlayer({
         pendingResumeRef.current = { videoId, seekTo: startSeconds, autoPlay };
       }
     },
-    [clearBgTimers, pendingResumeRef]
+    [clearBgTimers, clock, pendingResumeRef]
   );
 
   const playVideo = useCallback(() => {
@@ -160,7 +161,12 @@ export function useYoutubePlayer({
     (val: number) => {
       clock.set(val);
       if (readyRef.current && playerRef.current?.seekTo) {
-        playerRef.current.seekTo(val, true);
+        const st = playerRef.current.getPlayerState?.();
+        if (!optsRef.current.isPlaying && st !== 1 && st !== 2 && activeTrackIdRef.current) {
+          playerRef.current.cueVideoById?.(activeTrackIdRef.current, Math.floor(val));
+        } else {
+          playerRef.current.seekTo(val, true);
+        }
       } else if (pendingResumeRef.current) {
         pendingResumeRef.current.seekTo = val;
       }
@@ -205,6 +211,7 @@ export function useYoutubePlayer({
     const init = () => {
       if (playerRef.current || !window.YT?.Player) return;
       initVideoIdRef.current = trackId;
+      initStartSecRef.current = startSec;
       playerRef.current = new window.YT.Player("yt-audio-player", {
         height: "100%",
         width: "100%",
@@ -232,6 +239,7 @@ export function useYoutubePlayer({
             pendingResumeRef.current = null;
 
             if (action.type === "load") {
+              wantAutoPlayRef.current = true;
               loadingTargetIdRef.current = action.videoId;
               seenTransitionRef.current = false;
               e.target.loadVideoById(action.videoId, Math.floor(action.seekTo));
@@ -239,6 +247,7 @@ export function useYoutubePlayer({
               return;
             }
             if (action.type === "cue") {
+              wantAutoPlayRef.current = false;
               loadingTargetIdRef.current = action.videoId;
               seenTransitionRef.current = false;
               e.target.cueVideoById(action.videoId, Math.floor(action.seekTo));
@@ -247,13 +256,13 @@ export function useYoutubePlayer({
 
             clock.set(clock.getSnapshot().currentTime, e.target.getDuration?.() || 0);
             if (action.type === "resume_initial") {
-              if (action.seekTo > 1) e.target.seekTo(action.seekTo, true);
+              wantAutoPlayRef.current = action.autoPlay;
               if (action.autoPlay) {
+                if (action.seekTo > 1) e.target.seekTo(action.seekTo, true);
                 e.target.playVideo();
                 setTimeout(() => {
                   const st = e.target.getPlayerState?.();
                   if (st !== 1 && st !== 3) {
-                    toast.info(`Click anywhere to resume from ${formatTime(action.seekTo)}`);
                     const unlock = () => {
                       e.target.playVideo?.();
                       window.removeEventListener("pointerdown", unlock);
@@ -263,6 +272,8 @@ export function useYoutubePlayer({
                     window.addEventListener("keydown", unlock, { once: true });
                   }
                 }, 900);
+              } else if (Math.floor(action.seekTo) !== initStartSecRef.current) {
+                e.target.cueVideoById?.(initVideoIdRef.current, Math.floor(action.seekTo));
               }
             }
           },
@@ -411,15 +422,22 @@ export function useYoutubePlayer({
   useEffect(() => {
     const flush = () => {
       const playerVid = getPlayerVideoId(playerRef.current);
+      const st = playerRef.current?.getPlayerState?.();
       const canReadLive =
         readyRef.current &&
         !loadingTargetIdRef.current &&
+        (st === 1 || st === 2) &&
         (!playerVid || playerVid === activeTrackIdRef.current);
       const liveTime = canReadLive
         ? playerRef.current?.getCurrentTime?.() ?? clock.getSnapshot().currentTime
         : clock.getSnapshot().currentTime;
+      const intendedPlaying = pendingResumeRef.current
+        ? pendingResumeRef.current.autoPlay
+        : readyRef.current
+          ? wantAutoPlayRef.current
+          : optsRef.current.isPlaying;
       callbacksRef.current.onSaveSession(
-        { currentTime: liveTime, isPlaying: optsRef.current.isPlaying },
+        { currentTime: liveTime, isPlaying: intendedPlaying },
         true
       );
     };
@@ -438,7 +456,10 @@ export function useYoutubePlayer({
         return;
       }
       const st = playerRef.current.getPlayerState?.();
-      const t = playerRef.current.getCurrentTime?.() || 0;
+      const t =
+        st === 1 || st === 2
+          ? playerRef.current.getCurrentTime?.() || 0
+          : clock.getSnapshot().currentTime;
       const d = playerRef.current.getDuration?.() || 0;
       clock.set(t, d > 0 ? d : undefined);
       if (d > 0 && "mediaSession" in navigator && navigator.mediaSession.setPositionState) {
@@ -468,7 +489,7 @@ export function useYoutubePlayer({
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [activeTrackIdRef, clearBgTimers, clock]);
+  }, [activeTrackIdRef, clearBgTimers, clock, pendingResumeRef]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -486,20 +507,21 @@ export function useYoutubePlayer({
         return;
       }
 
+      const st = playerRef.current.getPlayerState?.();
       const raw = playerRef.current.getCurrentTime() || 0;
       const d = playerRef.current.getDuration?.() || 0;
       const rate = playerRef.current.getPlaybackRate?.() || 1;
       const pNow = performance.now();
 
       let sec: number;
-      if (Math.abs(raw - lastRawYt) > 0.001) {
+      if (st !== 1 || Math.abs(raw - lastRawYt) > 0.001) {
         lastRawYt = raw;
         syncYtSec = raw;
         syncPerfMs = pNow;
         sec = raw;
       } else {
         sec = syncYtSec + ((pNow - syncPerfMs) / 1000) * rate;
-        if (Math.abs(sec - raw) > 0.35) sec = Math.min(sec, raw + 0.35);
+        if (sec - raw > 0.25) sec = raw + 0.25;
       }
       if (d > 0) sec = Math.min(sec, d);
       const nextTime = Math.max(0, sec);

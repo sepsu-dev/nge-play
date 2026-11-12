@@ -336,7 +336,7 @@ export function HomeDashboard({
                     {artist.name}
                   </p>
                   <p className="text-xs text-[#9CA3AF] truncate">
-                    {artist.subscribers || "YouTube Music Artist"}
+                    {artist.subscribers || "Artist"}
                   </p>
                 </div>
               </div>

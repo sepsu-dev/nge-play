@@ -3,9 +3,15 @@ import type { Track } from "@/actions/youtube";
 import {
   applyRoomCommand,
   createRoomState,
+  generateMemberIcon,
+  generateMemberName,
   makeRoomCode,
+  parseMemberIcon,
+  sanitizeMemberName,
   sanitizeRoomCode,
+  type MemberIconId,
   type RoomCommand,
+  type RoomMember,
   type RoomState,
 } from "@/lib/room";
 
@@ -14,6 +20,8 @@ export const dynamic = "force-dynamic";
 
 interface RoomSubscriber {
   clientId: string;
+  name: string;
+  icon: MemberIconId;
   send: (event: string, data: unknown) => void;
   close: () => void;
 }
@@ -54,12 +62,12 @@ function pruneRooms(now = Date.now()) {
   }
 }
 
-function uniqueMemberCount(rec: RoomRecord): number {
-  const ids = new Set<string>();
+function buildMembers(rec: RoomRecord): RoomMember[] {
+  const byId = new Map<string, RoomMember>();
   for (const sub of rec.subscribers.values()) {
-    ids.add(sub.clientId);
+    byId.set(sub.clientId, { id: sub.clientId, name: sub.name, icon: sub.icon });
   }
-  return ids.size;
+  return Array.from(byId.values());
 }
 
 function broadcastRoom(rec: RoomRecord, now = Date.now(), excludeSubId?: string) {
@@ -75,6 +83,9 @@ export async function GET(req: NextRequest) {
 
   const code = sanitizeRoomCode(req.nextUrl.searchParams.get("code") || "");
   const clientId = (req.nextUrl.searchParams.get("clientId") || "anon").slice(0, 64);
+  const name =
+    sanitizeMemberName(req.nextUrl.searchParams.get("name") || "") || generateMemberName();
+  const icon = parseMemberIcon(req.nextUrl.searchParams.get("icon")) || generateMemberIcon();
   const rec = rooms.get(code);
   if (!rec) {
     return NextResponse.json({ error: "Room not found" }, { status: 404 });
@@ -93,13 +104,13 @@ export async function GET(req: NextRequest) {
       pingTimer = null;
     }
     rec.subscribers.delete(subId);
-    const count = uniqueMemberCount(rec);
-    if (count === 0) {
+    const members = buildMembers(rec);
+    if (members.length === 0) {
       rooms.delete(code);
       return;
     }
     const now = Date.now();
-    rec.state = { ...rec.state, memberCount: count };
+    rec.state = { ...rec.state, members, memberCount: members.length };
     broadcastRoom(rec, now);
   };
 
@@ -121,10 +132,11 @@ export async function GET(req: NextRequest) {
         } catch {}
       };
 
-      rec.subscribers.set(subId, { clientId, send, close: cleanup });
+      rec.subscribers.set(subId, { clientId, name, icon, send, close: cleanup });
       rec.hasJoined = true;
       const now = Date.now();
-      rec.state = { ...rec.state, memberCount: Math.max(1, uniqueMemberCount(rec)) };
+      const members = buildMembers(rec);
+      rec.state = { ...rec.state, members, memberCount: Math.max(1, members.length) };
 
       send("state", { room: rec.state, serverNow: now });
       broadcastRoom(rec, now, subId);
@@ -174,9 +186,13 @@ export async function POST(req: NextRequest) {
     });
     rememberUsedCode(code);
     const queue = Array.isArray(body.queue) ? (body.queue as Track[]) : [];
+    const clientName = sanitizeMemberName(String(body?.name || "")) || generateMemberName();
+    const clientIcon = parseMemberIcon(body?.icon) || generateMemberIcon();
     const state = createRoomState({
       code,
       clientId,
+      clientName,
+      clientIcon,
       queue,
       currentIndex: Number(body.currentIndex) || 0,
       currentTime: Number(body.currentTime) || 0,
@@ -198,6 +214,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ room: rec.state, serverNow: now });
   }
 
+  if (body?.type === "rename") {
+    const hasName = body?.name !== undefined;
+    const hasIcon = body?.icon !== undefined;
+    const nextName = hasName ? sanitizeMemberName(String(body.name || "")) : "";
+    const nextIcon = hasIcon ? parseMemberIcon(body.icon) : null;
+    if ((hasName && !nextName) || (hasIcon && !nextIcon) || (!hasName && !hasIcon)) {
+      return NextResponse.json({ error: "Invalid profile" }, { status: 400 });
+    }
+    let updated = false;
+    for (const sub of rec.subscribers.values()) {
+      if (sub.clientId === clientId) {
+        if (nextName) sub.name = nextName;
+        if (nextIcon) sub.icon = nextIcon;
+        updated = true;
+      }
+    }
+    const members = updated
+      ? buildMembers(rec)
+      : rec.state.members.map((m) =>
+          m.id === clientId
+            ? { ...m, name: nextName || m.name, icon: nextIcon || m.icon }
+            : m
+        );
+    rec.state = {
+      ...rec.state,
+      members,
+      memberCount: Math.max(1, members.length),
+      lastActivityAt: now,
+    };
+    broadcastRoom(rec, now);
+    return NextResponse.json({ room: rec.state, serverNow: now });
+  }
+
   if (body?.type === "leave") {
     let removedSub = false;
     for (const sub of rec.subscribers.values()) {
@@ -206,11 +255,11 @@ export async function POST(req: NextRequest) {
         sub.close();
       }
     }
-    const count = uniqueMemberCount(rec);
-    if (count === 0) {
+    const members = buildMembers(rec);
+    if (members.length === 0) {
       rooms.delete(code);
     } else if (!removedSub) {
-      rec.state = { ...rec.state, memberCount: count };
+      rec.state = { ...rec.state, members, memberCount: members.length };
       broadcastRoom(rec, now);
     }
     return NextResponse.json({ ok: true });
@@ -219,9 +268,11 @@ export async function POST(req: NextRequest) {
   if (body?.type === "command" && body.command && typeof body.command.type === "string") {
     const result = applyRoomCommand(rec.state, body.command as RoomCommand, clientId, now);
     if (result.changed) {
+      const members = buildMembers(rec);
       rec.state = {
         ...result.room,
-        memberCount: Math.max(1, uniqueMemberCount(rec) || result.room.memberCount),
+        members: members.length ? members : result.room.members,
+        memberCount: Math.max(1, members.length || result.room.memberCount),
       };
       broadcastRoom(rec, now);
     }

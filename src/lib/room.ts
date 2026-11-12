@@ -1,5 +1,26 @@
 import type { Track } from "@/actions/youtube";
 
+export const MEMBER_ICON_IDS = [
+  "fox",
+  "panda",
+  "cat",
+  "owl",
+  "bear",
+  "koala",
+  "frog",
+  "bunny",
+  "duck",
+  "headphones",
+] as const;
+
+export type MemberIconId = (typeof MEMBER_ICON_IDS)[number];
+
+export interface RoomMember {
+  id: string;
+  name: string;
+  icon: MemberIconId;
+}
+
 export interface RoomState {
   code: string;
   version: number;
@@ -10,6 +31,7 @@ export interface RoomState {
   anchorAt: number;
   updatedBy: string;
   memberCount: number;
+  members: RoomMember[];
   createdAt: number;
   lastActivityAt: number;
 }
@@ -24,6 +46,56 @@ export type RoomCommand =
   | { type: "clearQueue" };
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+const NAME_ADJ = [
+  "Chill",
+  "Groovy",
+  "Lo-Fi",
+  "Sunny",
+  "Mellow",
+  "Cosmic",
+  "Breezy",
+  "Jazzy",
+  "Velvet",
+  "Dreamy",
+  "Acoustic",
+  "Smooth",
+];
+
+const NAME_NOUN = [
+  "Fox",
+  "Cat",
+  "Panda",
+  "Owl",
+  "Bear",
+  "Koala",
+  "Otter",
+  "Lynx",
+  "Wolf",
+  "Robin",
+  "Seal",
+  "Duck",
+];
+
+export function sanitizeMemberName(raw: string): string {
+  return raw.trim().replace(/\s+/g, " ").slice(0, 24);
+}
+
+export function generateMemberName(): string {
+  const adj = NAME_ADJ[Math.floor(Math.random() * NAME_ADJ.length)];
+  const noun = NAME_NOUN[Math.floor(Math.random() * NAME_NOUN.length)];
+  return `${adj} ${noun}`;
+}
+
+export function parseMemberIcon(raw: unknown): MemberIconId | null {
+  return typeof raw === "string" && (MEMBER_ICON_IDS as readonly string[]).includes(raw)
+    ? (raw as MemberIconId)
+    : null;
+}
+
+export function generateMemberIcon(): MemberIconId {
+  return MEMBER_ICON_IDS[Math.floor(Math.random() * MEMBER_ICON_IDS.length)];
+}
 
 export function sanitizeRoomCode(raw: string): string {
   return raw
@@ -61,6 +133,8 @@ export function computeRoomTime(
 export function createRoomState(params: {
   code: string;
   clientId: string;
+  clientName?: string;
+  clientIcon?: MemberIconId;
   queue: Track[];
   currentIndex: number;
   currentTime: number;
@@ -72,6 +146,8 @@ export function createRoomState(params: {
   const maxIdx = Math.max(0, queue.length - 1);
   const currentIndex = Math.min(Math.max(0, params.currentIndex), maxIdx);
   const anchorTime = Math.max(0, Number.isFinite(params.currentTime) ? params.currentTime : 0);
+  const name = sanitizeMemberName(params.clientName || "") || generateMemberName();
+  const icon = parseMemberIcon(params.clientIcon) || generateMemberIcon();
 
   return {
     code: params.code,
@@ -83,6 +159,7 @@ export function createRoomState(params: {
     anchorAt: now,
     updatedBy: params.clientId,
     memberCount: 1,
+    members: [{ id: params.clientId, name, icon }],
     createdAt: now,
     lastActivityAt: now,
   };

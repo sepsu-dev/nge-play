@@ -1,4 +1,4 @@
-const CACHE_NAME = "ngeplay-shell-v1";
+const CACHE_NAME = "ngeplay-shell-v2";
 const SHELL_ASSETS = ["/", "/icon.svg", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -47,12 +47,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Stale-while-revalidate for static assets & icons
+  // Stale-while-revalidate for hashed static assets & icons (never cache unhashed dev chunks)
+  const isDevChunk = url.pathname.startsWith("/_next/static/") && url.pathname.includes("._.");
   if (
-    url.pathname.startsWith("/_next/static/") ||
-    url.pathname.startsWith("/icon") ||
-    url.pathname.endsWith(".png") ||
-    url.pathname.endsWith(".svg")
+    !isDevChunk &&
+    (url.pathname.startsWith("/_next/static/") ||
+      url.pathname.startsWith("/icon") ||
+      url.pathname.endsWith(".png") ||
+      url.pathname.endsWith(".svg"))
   ) {
     event.respondWith(
       caches.match(req).then((cached) => {
