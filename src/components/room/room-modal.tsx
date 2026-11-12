@@ -8,7 +8,6 @@ import {
   LogOut,
   Pencil,
   Radio,
-  Users,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -209,79 +208,51 @@ export function RoomModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm bg-white dark:bg-[#161922] rounded-3xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] p-6 space-y-5 np-pop-enter"
+        className="w-full max-w-sm bg-white dark:bg-[#161922] rounded-3xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] p-5 space-y-4 np-pop-enter"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 text-[#FFD014]" />
-            <h3 className="text-base font-bold text-[#18181B] dark:text-white">
+            <h3 className="text-[15px] font-bold text-[#18181B] dark:text-white">
               Listen Together
             </h3>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            className="p-1 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white cursor-pointer"
+            aria-label="Close"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {room ? (
-          <div className="space-y-4">
-            <div className="rounded-2xl bg-[#FFF9DB] dark:bg-[#FFD014]/10 border border-[#FFD014]/40 p-4 text-center space-y-1.5">
+          <div className="space-y-3.5">
+            <div className="rounded-2xl bg-[#FFF9DB] dark:bg-[#FFD014]/10 border border-[#FFD014]/35 py-3.5 px-4 text-center space-y-1">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309] dark:text-[#FFD014]">
                 Room Code
               </p>
               <p className="text-2xl font-extrabold tracking-[0.22em] text-[#18181B] dark:text-white">
                 {room.code}
               </p>
-              <p className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7280] dark:text-[#9CA3AF]">
-                <Users className="w-3.5 h-3.5 text-[#B45309] dark:text-[#FFD014]" />
-                <span>{room.memberCount} listening</span>
-              </p>
             </div>
 
-            <div className="rounded-2xl bg-[#F4F5F7] dark:bg-[#1E222D]/60 p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2 px-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] dark:text-[#9CA3AF]">
-                  Joined ({members.length})
-                </span>
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPickingIcon((v) => !v);
-                      setEditingName(false);
-                    }}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#6B7280] dark:text-[#D1D5DB] hover:text-[#18181B] dark:hover:text-white cursor-pointer"
-                  >
-                    <MemberAvatar icon={memberIcon} sizeClass="w-4 h-4 text-[10px]" />
-                    <span>Avatar</span>
-                  </button>
-                  {!editingName && (
-                    <button
-                      type="button"
-                      onClick={startEditName}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#B45309] dark:text-[#FFD014] hover:underline cursor-pointer"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      <span>Edit name</span>
-                    </button>
-                  )}
-                </div>
-              </div>
+            <div className="rounded-2xl bg-[#F4F5F7] dark:bg-[#0D0F14] p-3 space-y-2">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wider text-[#6B7280] dark:text-[#9CA3AF]">
+                Members · {members.length}
+              </p>
 
               {nameForm}
               {iconPicker}
 
-              <div className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
+              <div className="max-h-36 overflow-y-auto space-y-1.5">
                 {members.map((m) => {
                   const isMe = m.id === memberId;
                   return (
                     <div
                       key={m.id}
-                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-[#161922]/90 text-xs"
+                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161922] text-xs"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         {isMe ? (
@@ -292,12 +263,11 @@ export function RoomModal({
                               setPickingIcon((v) => !v);
                               setEditingName(false);
                             }}
-                            className="rounded-full hover:ring-2 hover:ring-[#FFD014] transition-shadow cursor-pointer shrink-0"
+                            className="rounded-full ring-1 ring-black/[0.06] dark:ring-white/[0.1] hover:ring-2 hover:ring-[#FFD014] transition-shadow cursor-pointer shrink-0"
                           >
                             <MemberAvatar
                               icon={m.icon || memberIcon}
                               sizeClass="w-7 h-7 text-sm"
-                              className="ring-1 ring-[#FFD014]/60"
                             />
                           </button>
                         ) : (
@@ -315,6 +285,16 @@ export function RoomModal({
                           </span>
                         )}
                       </div>
+                      {isMe && !editingName && (
+                        <button
+                          type="button"
+                          title="Edit name"
+                          onClick={startEditName}
+                          className="p-1.5 rounded-full text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shrink-0"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -325,7 +305,7 @@ export function RoomModal({
               <button
                 type="button"
                 onClick={() => copyText(room.code, "code", "Code copied")}
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-full bg-[#F4F5F7] dark:bg-[#1E222D] hover:bg-[#EAECEF] dark:hover:bg-[#262B38] text-xs font-semibold text-[#18181B] dark:text-white transition-colors cursor-pointer"
+                className="h-10 flex items-center justify-center gap-1.5 px-3 rounded-full bg-[#F4F5F7] dark:bg-[#1E222D] hover:bg-[#EAECEF] dark:hover:bg-[#262B38] text-xs font-semibold text-[#18181B] dark:text-white transition-colors cursor-pointer"
               >
                 {copied === "code" ? (
                   <Check className="w-3.5 h-3.5 text-green-500" />
@@ -343,7 +323,7 @@ export function RoomModal({
                     "Link copied"
                   )
                 }
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-full bg-[#FFD014] hover:bg-[#F5C400] text-xs font-bold text-[#18181B] transition-transform active:scale-95 cursor-pointer"
+                className="h-10 flex items-center justify-center gap-1.5 px-3 rounded-full bg-[#FFD014] hover:bg-[#F5C400] text-xs font-bold text-[#18181B] transition-transform active:scale-95 cursor-pointer"
               >
                 {copied === "link" ? (
                   <Check className="w-3.5 h-3.5" />
@@ -360,17 +340,17 @@ export function RoomModal({
                 onLeaveRoom();
                 handleClose();
               }}
-              className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-full text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Leave Room</span>
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="rounded-2xl bg-[#F4F5F7] dark:bg-[#0D0F14] px-3.5 py-2.5 space-y-2">
+          <div className="space-y-3.5">
+            <div className="rounded-2xl bg-[#F4F5F7] dark:bg-[#0D0F14] px-3.5 py-2.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-center gap-3 min-w-0">
                   <button
                     type="button"
                     title="Change avatar"
@@ -378,20 +358,19 @@ export function RoomModal({
                       setPickingIcon((v) => !v);
                       setEditingName(false);
                     }}
-                    className="rounded-full hover:ring-2 hover:ring-[#FFD014] transition-shadow cursor-pointer shrink-0"
+                    className="rounded-full ring-1 ring-black/[0.06] dark:ring-white/[0.1] hover:ring-2 hover:ring-[#FFD014] transition-shadow cursor-pointer shrink-0"
                   >
                     <MemberAvatar
                       icon={memberIcon}
                       sizeClass="w-9 h-9 text-lg"
-                      className="ring-1 ring-[#FFD014]/60"
                     />
                   </button>
                   <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
-                      Your Profile
+                    <p className="text-[11px] font-medium text-[#9CA3AF]">
+                      Profile
                     </p>
                     {!editingName && (
-                      <p className="text-xs font-bold text-[#18181B] dark:text-white truncate">
+                      <p className="text-sm font-semibold text-[#18181B] dark:text-white truncate">
                         {memberName || "..."}
                       </p>
                     )}
@@ -401,7 +380,7 @@ export function RoomModal({
                   <button
                     type="button"
                     onClick={startEditName}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white dark:bg-[#161922] text-[11px] font-semibold text-[#4B5563] dark:text-[#D1D5DB] hover:text-[#18181B] dark:hover:text-white shadow-xs cursor-pointer shrink-0"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shrink-0"
                   >
                     <Pencil className="w-3 h-3" />
                     <span>Edit</span>
@@ -416,7 +395,7 @@ export function RoomModal({
               type="button"
               disabled={busy}
               onClick={onCreateRoom}
-              className="w-full py-2.5 rounded-full text-xs font-bold bg-[#FFD014] hover:bg-[#F5C400] text-[#18181B] transition-transform active:scale-95 disabled:opacity-60 cursor-pointer"
+              className="w-full h-10 rounded-full text-[13px] font-bold bg-[#FFD014] hover:bg-[#F5C400] text-[#18181B] transition-transform active:scale-95 disabled:opacity-60 cursor-pointer"
             >
               {busy ? "Creating..." : "Create Room"}
             </button>
@@ -427,19 +406,22 @@ export function RoomModal({
               <span className="h-px flex-1 bg-black/[0.06] dark:bg-white/[0.08]" />
             </div>
 
-            <form onSubmit={handleJoinSubmit} className="flex gap-2">
+            <form
+              onSubmit={handleJoinSubmit}
+              className="flex items-center h-11 p-1 pl-4 rounded-full bg-[#F4F5F7] dark:bg-[#0D0F14] border border-transparent focus-within:border-[#FFD014] focus-within:bg-white dark:focus-within:bg-[#1B1F2A] transition-colors"
+            >
               <input
                 type="text"
                 value={codeInput}
                 onChange={(e) => setCodeInput(sanitizeRoomCode(e.target.value))}
                 placeholder="Room Code"
                 maxLength={8}
-                className="flex-1 h-10 px-4 rounded-full bg-[#F4F5F7] dark:bg-[#0D0F14] focus:bg-white dark:focus:bg-[#1B1F2A] border border-transparent focus:border-[#FFD014] text-sm font-bold tracking-widest uppercase text-[#18181B] dark:text-white placeholder:font-normal placeholder:tracking-normal placeholder:normal-case focus:outline-none transition-colors"
+                className="flex-1 min-w-0 bg-transparent text-sm font-bold tracking-widest uppercase text-[#18181B] dark:text-white placeholder:font-normal placeholder:tracking-normal placeholder:normal-case placeholder:text-[#9CA3AF] focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={busy || !codeInput.trim()}
-                className="px-5 h-10 rounded-full text-xs font-bold bg-[#18181B] dark:bg-white text-white dark:text-[#18181B] hover:opacity-90 disabled:opacity-40 transition-opacity cursor-pointer shrink-0"
+                className="px-4 h-9 rounded-full text-xs font-bold bg-[#18181B] dark:bg-white text-white dark:text-[#18181B] hover:opacity-90 disabled:opacity-35 transition-opacity cursor-pointer shrink-0"
               >
                 Join
               </button>
