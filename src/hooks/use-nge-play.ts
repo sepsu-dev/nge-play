@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import toast from "react-hot-toast";
+import { fetchTrackLyrics, type LyricsResult } from "@/actions/lyrics";
 import {
   fetchRelatedTracks,
-  fetchTrackLyrics,
   fetchYouTubeAlbum,
   fetchYouTubeChannel,
   fetchYouTubeExplore,
@@ -14,11 +14,11 @@ import {
   type AlbumSummary,
   type ArtistSummary,
   type ChannelInfo,
-  type LyricsResult,
   type Track,
   type YouTubePlaylist,
 } from "@/actions/youtube";
 import { useMediaSession } from "@/hooks/use-media-session";
+import { isSameQueue, useRoomSync, type RoomPlayerBridge } from "@/hooks/use-room-sync";
 import { useYoutubePlayer } from "@/hooks/use-youtube-player";
 import { parseDurationSec } from "@/lib/format";
 import { createClockStore, type ClockStore } from "@/lib/playback-clock";
@@ -31,44 +31,15 @@ import {
   type PendingResume,
   type SessionSnapshot,
   type TabId,
+  type TrackMenuState,
 } from "@/lib/player-state";
-import {
-  MEMBER_ICON_IDS,
-  computeRoomTime,
-  generateMemberIcon,
-  generateMemberName,
-  parseMemberIcon,
-  sanitizeMemberName,
-  sanitizeRoomCode,
-  type MemberIconId,
-  type RoomCommand,
-  type RoomState,
-} from "@/lib/room";
+import { sanitizeRoomCode } from "@/lib/room";
 import {
   flushSessionSync,
   readStored,
   requestPersistentStorage,
   writeStored,
 } from "@/lib/storage";
-
-export interface TrackMenuState {
-  track: Track;
-  x: number;
-  y: number;
-  customPlaylistId?: string;
-}
-
-function isSameQueue(a: Track[], b: Track[]): boolean {
-  return a.length === b.length && a.every((t, i) => t.id === b[i]?.id);
-}
-
-function setRoomUrlParam(code: string | null) {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  if (code) url.searchParams.set("room", code);
-  else url.searchParams.delete("room");
-  window.history.replaceState(null, "", url.pathname + url.search + url.hash);
-}
 
 export function useNgePlay() {
   const [tab, setTab] = useState<TabId>("home");
@@ -85,6 +56,8 @@ export function useNgePlay() {
     null
   );
   const [searching, setSearching] = useState(true);
+  const [hydrating, setHydrating] = useState(true);
+  const [openingTarget, setOpeningTarget] = useState<"album" | "artist" | null>(null);
 
   const [customPlaylists, setCustomPlaylists] = useState<CustomPlaylist[]>([]);
   const [activeCustomPlId, setActiveCustomPlId] = useState("");
@@ -119,13 +92,6 @@ export function useNgePlay() {
   const [repeat, setRepeat] = useState(false);
   const [shuffle, setShuffle] = useState(false);
 
-  const [room, setRoom] = useState<RoomState | null>(null);
-  const [roomModalOpen, setRoomModalOpen] = useState(false);
-  const [roomBusy, setRoomBusy] = useState(false);
-  const [memberId, setMemberId] = useState("");
-  const [memberName, setMemberName] = useState("");
-  const [memberIcon, setMemberIcon] = useState<MemberIconId>(MEMBER_ICON_IDS[0]);
-
   const clockRef = useRef<ClockStore | null>(null);
   if (!clockRef.current) clockRef.current = createClockStore();
   const clock = clockRef.current;
@@ -135,21 +101,16 @@ export function useNgePlay() {
   const activeTrackIdRef = useRef<string>("");
   const userKeyRef = useRef("guest");
   const pendingResumeRef = useRef<PendingResume | null>(null);
-  const roomRef = useRef<RoomState | null>(null);
-  const clientIdRef = useRef("");
-  const memberNameRef = useRef("");
-  const memberIconRef = useRef<MemberIconId | "">("");
-  const clockOffsetRef = useRef(0);
-  const hasClockOffsetRef = useRef(false);
-  const bestRttRef = useRef(Infinity);
-  const lastRoomResyncAtRef = useRef(0);
-  const lastAppliedVersionRef = useRef(0);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const playerRef = useRef<RoomPlayerBridge | null>(null);
   const onTrackEndedRef = useRef<() => boolean>(() => false);
   const onPlayerPlayingRef = useRef<(actualTime: number) => void>(() => {});
 
   const queueRef = useRef<Track[]>(queue);
   const currentIndexRef = useRef<number>(currentIndex);
+  const isPlayingRef = useRef<boolean>(isPlaying);
+  const resultsRef = useRef<Track[]>(results);
+  const trendingRef = useRef<Track[]>(trending);
+  const lyricPrefsRef = useRef({ variantIdx: lyricVariantIdx, offset: lyricOffset });
   const stateRef = useRef({
     queue,
     currentIndex,
@@ -164,8 +125,25 @@ export function useNgePlay() {
   useEffect(() => {
     queueRef.current = queue;
     currentIndexRef.current = currentIndex;
+    isPlayingRef.current = isPlaying;
+    resultsRef.current = results;
+    trendingRef.current = trending;
+    lyricPrefsRef.current = { variantIdx: lyricVariantIdx, offset: lyricOffset };
     stateRef.current = { queue, currentIndex, isPlaying, volume, muted, repeat, shuffle, tab };
-  }, [queue, currentIndex, isPlaying, volume, muted, repeat, shuffle, tab]);
+  }, [
+    queue,
+    currentIndex,
+    isPlaying,
+    volume,
+    muted,
+    repeat,
+    shuffle,
+    tab,
+    results,
+    trending,
+    lyricVariantIdx,
+    lyricOffset,
+  ]);
 
   const currentTrack = queue[currentIndex];
   useEffect(() => {
@@ -173,6 +151,53 @@ export function useNgePlay() {
   }, [currentTrack?.id]);
 
   const playTrackAtRef = useRef<(index: number, list: Track[]) => void>(() => {});
+
+  const recordHistory = useCallback((track: Track) => {
+    setHistory((prev) => {
+      const next = [track, ...prev.filter((t) => t.id !== track.id)].slice(0, 30);
+      void writeStored("history", userKeyRef.current, next);
+      return next;
+    });
+  }, []);
+
+  const roomSync = useRoomSync({
+    clock,
+    playerRef,
+    queueRef,
+    currentIndexRef,
+    activeTrackIdRef,
+    hasUserPlaybackRef,
+    isPlayingRef,
+    getFallbackQueue: () => (resultsRef.current.length ? resultsRef.current : trendingRef.current),
+    getLyricPrefs: () => lyricPrefsRef.current,
+    onQueueSync: setQueue,
+    onIndexSync: setCurrentIndex,
+    onPlayingSync: setIsPlaying,
+    onLyricPrefsSync: (variantIdx, offset) => {
+      setLyricVariantIdx(variantIdx);
+      setLyricOffset(offset);
+    },
+    onRecordHistory: recordHistory,
+  });
+
+  const {
+    room,
+    roomRef,
+    roomModalOpen,
+    setRoomModalOpen,
+    roomBusy,
+    memberId,
+    memberName,
+    memberIcon,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    updateMemberName,
+    updateMemberIcon,
+    sendRoomCommand,
+    initIdentity,
+    handleRoomPlayerPlaying,
+  } = roomSync;
 
   const saveSession = useCallback(
     (
@@ -226,388 +251,9 @@ export function useNgePlay() {
     onPlayerPlaying: (actualTime) => onPlayerPlayingRef.current(actualTime),
     onSaveSession: saveSession,
   });
+  playerRef.current = player;
 
-  const getClientId = useCallback(() => {
-    if (!clientIdRef.current) {
-      const id =
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      clientIdRef.current = id;
-      setMemberId(id);
-    }
-    return clientIdRef.current;
-  }, []);
 
-  const getMemberName = useCallback(() => {
-    if (memberNameRef.current) return memberNameRef.current;
-    let name = "";
-    try {
-      name = sanitizeMemberName(localStorage.getItem("ngeplay_member_name") || "");
-    } catch {}
-    if (!name) {
-      name = generateMemberName();
-      try {
-        localStorage.setItem("ngeplay_member_name", name);
-      } catch {}
-    }
-    memberNameRef.current = name;
-    setMemberName(name);
-    return name;
-  }, []);
-
-  const getMemberIcon = useCallback((): MemberIconId => {
-    if (memberIconRef.current) return memberIconRef.current;
-    let icon: MemberIconId | null = null;
-    try {
-      icon = parseMemberIcon(localStorage.getItem("ngeplay_member_icon"));
-    } catch {}
-    if (!icon) {
-      icon = generateMemberIcon();
-      try {
-        localStorage.setItem("ngeplay_member_icon", icon);
-      } catch {}
-    }
-    memberIconRef.current = icon;
-    setMemberIcon(icon);
-    return icon;
-  }, []);
-
-  const syncClockOffset = useCallback((serverNow: number, t0?: number) => {
-    const t1 = Date.now();
-    if (t0 !== undefined) {
-      const rtt = Math.max(0, t1 - t0);
-      if (!hasClockOffsetRef.current || rtt <= bestRttRef.current + 120) {
-        hasClockOffsetRef.current = true;
-        bestRttRef.current = Math.min(bestRttRef.current, rtt);
-        clockOffsetRef.current = serverNow - (t0 + t1) / 2;
-      }
-      return;
-    }
-    if (!hasClockOffsetRef.current) {
-      clockOffsetRef.current = serverNow - t1;
-    }
-  }, []);
-
-  const clearRoomLocal = useCallback(() => {
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
-    roomRef.current = null;
-    lastAppliedVersionRef.current = 0;
-    hasClockOffsetRef.current = false;
-    bestRttRef.current = Infinity;
-    clockOffsetRef.current = 0;
-    lastRoomResyncAtRef.current = 0;
-    setRoom(null);
-    setRoomUrlParam(null);
-  }, []);
-
-  const applyRoomSnapshot = useCallback(
-    (nextRoom: RoomState, serverNow: number) => {
-      roomRef.current = nextRoom;
-      setRoom(nextRoom);
-      if (nextRoom.version <= lastAppliedVersionRef.current) return;
-      lastAppliedVersionRef.current = nextRoom.version;
-      hasUserPlaybackRef.current = true;
-
-      setLyricVariantIdx(nextRoom.lyricVariantIdx ?? 0);
-      setLyricOffset(nextRoom.lyricOffset ?? 0);
-
-      const estServerNow = hasClockOffsetRef.current
-        ? Date.now() + clockOffsetRef.current
-        : serverNow;
-      const targetTime = computeRoomTime(nextRoom, estServerNow);
-      if (!isSameQueue(queueRef.current, nextRoom.queue)) {
-        queueRef.current = nextRoom.queue;
-        setQueue(nextRoom.queue);
-      }
-
-      const prevTrackId = activeTrackIdRef.current;
-      const nextTrack = nextRoom.queue[nextRoom.currentIndex];
-      currentIndexRef.current = nextRoom.currentIndex;
-      setCurrentIndex(nextRoom.currentIndex);
-
-      if (!nextTrack) {
-        activeTrackIdRef.current = "";
-        setIsPlaying(false);
-        clock.set(0, 0);
-        return;
-      }
-
-      activeTrackIdRef.current = nextTrack.id;
-      if (nextTrack.id !== prevTrackId) {
-        clock.set(targetTime, 0);
-        setIsPlaying(nextRoom.isPlaying);
-        setHistory((prev) => {
-          const next = [nextTrack, ...prev.filter((t) => t.id !== nextTrack.id)].slice(0, 30);
-          void writeStored("history", userKeyRef.current, next);
-          return next;
-        });
-        player.loadVideo(nextTrack.id, targetTime, nextRoom.isPlaying);
-        return;
-      }
-
-      const localTime = clock.getSnapshot().currentTime;
-      const wasPlaying = stateRef.current.isPlaying;
-      if (nextRoom.isPlaying !== wasPlaying) {
-        setIsPlaying(nextRoom.isPlaying);
-        if (nextRoom.isPlaying) {
-          if (Math.abs(localTime - targetTime) > 0.5) {
-            const target = targetTime + 0.1;
-            lastRoomResyncAtRef.current = Date.now();
-            player.seekTo(target);
-            clock.set(target);
-          }
-          player.playVideo();
-        } else {
-          player.pauseVideo();
-          clock.set(targetTime);
-          if (Math.abs(localTime - targetTime) > 0.25) player.seekTo(targetTime);
-        }
-      } else if (Math.abs(localTime - targetTime) > (nextRoom.isPlaying ? 0.5 : 0.25)) {
-        const target = nextRoom.isPlaying ? targetTime + 0.1 : targetTime;
-        lastRoomResyncAtRef.current = Date.now();
-        player.seekTo(target);
-        clock.set(target);
-      }
-    },
-    [clock, player]
-  );
-
-  const connectRoomStream = useCallback(
-    (code: string) => {
-      eventSourceRef.current?.close();
-      const es = new EventSource(
-        `/api/room?code=${encodeURIComponent(code)}&clientId=${encodeURIComponent(
-          getClientId()
-        )}&name=${encodeURIComponent(getMemberName())}&icon=${encodeURIComponent(
-          getMemberIcon()
-        )}`
-      );
-      eventSourceRef.current = es;
-      es.addEventListener("state", (ev) => {
-        try {
-          const data = JSON.parse((ev as MessageEvent).data) as {
-            room: RoomState;
-            serverNow: number;
-          };
-          syncClockOffset(data.serverNow);
-          applyRoomSnapshot(data.room, data.serverNow);
-        } catch {}
-      });
-      es.onerror = () => {
-        if (es.readyState === EventSource.CLOSED && roomRef.current?.code === code) {
-          clearRoomLocal();
-          toast.error("Room ended");
-        }
-      };
-    },
-    [applyRoomSnapshot, clearRoomLocal, getClientId, getMemberIcon, getMemberName, syncClockOffset]
-  );
-
-  const sendRoomCommand = useCallback(
-    async (command: RoomCommand) => {
-      const cur = roomRef.current;
-      if (!cur) return;
-      const t0 = Date.now();
-      try {
-        const res = await fetch("/api/room", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "command",
-            code: cur.code,
-            clientId: getClientId(),
-            command,
-          }),
-        });
-        if (res.status === 404) {
-          clearRoomLocal();
-          toast.error("Room not found");
-          return;
-        }
-        if (!res.ok) return;
-        const data = (await res.json()) as { room: RoomState; serverNow: number };
-        syncClockOffset(data.serverNow, t0);
-        applyRoomSnapshot(data.room, data.serverNow);
-      } catch {}
-    },
-    [applyRoomSnapshot, clearRoomLocal, getClientId, syncClockOffset]
-  );
-
-  const createRoom = useCallback(async () => {
-    setRoomBusy(true);
-    const t0 = Date.now();
-    try {
-      const q = queueRef.current.length ? queueRef.current : results.length ? results : trending;
-      const res = await fetch("/api/room", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "create",
-          clientId: getClientId(),
-          name: getMemberName(),
-          icon: getMemberIcon(),
-          queue: q,
-          currentIndex: queueRef.current.length ? currentIndexRef.current : 0,
-          currentTime: queueRef.current.length ? clock.getSnapshot().currentTime : 0,
-          isPlaying: queueRef.current.length ? stateRef.current.isPlaying : false,
-          lyricVariantIdx,
-          lyricOffset,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as { room: RoomState; serverNow: number };
-      syncClockOffset(data.serverNow, t0);
-      roomRef.current = data.room;
-      lastAppliedVersionRef.current = data.room.version;
-      setRoom(data.room);
-      setRoomUrlParam(data.room.code);
-      connectRoomStream(data.room.code);
-      toast.success(`Room ${data.room.code} created`);
-    } catch {
-      toast.error("Failed to create room");
-    } finally {
-      setRoomBusy(false);
-    }
-  }, [
-    clock,
-    connectRoomStream,
-    getClientId,
-    getMemberIcon,
-    getMemberName,
-    lyricOffset,
-    lyricVariantIdx,
-    results,
-    syncClockOffset,
-    trending,
-  ]);
-
-  const joinRoom = useCallback(
-    async (rawCode: string, silent = false): Promise<boolean> => {
-      const code = sanitizeRoomCode(rawCode);
-      if (!code) return false;
-      setRoomBusy(true);
-      const t0 = Date.now();
-      try {
-        const res = await fetch("/api/room", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "join",
-            code,
-            clientId: getClientId(),
-            name: getMemberName(),
-            icon: getMemberIcon(),
-          }),
-        });
-        if (!res.ok) {
-          if (silent) setRoomUrlParam(null);
-          toast.error("Room not found");
-          return false;
-        }
-        const data = (await res.json()) as { room: RoomState; serverNow: number };
-        syncClockOffset(data.serverNow, t0);
-        lastAppliedVersionRef.current = 0;
-        applyRoomSnapshot(data.room, data.serverNow);
-        setRoomUrlParam(data.room.code);
-        connectRoomStream(data.room.code);
-        toast.success(`Joined room ${data.room.code}`);
-        return true;
-      } catch {
-        toast.error("Failed to join room");
-        return false;
-      } finally {
-        setRoomBusy(false);
-      }
-    },
-    [applyRoomSnapshot, connectRoomStream, getClientId, getMemberIcon, getMemberName, syncClockOffset]
-  );
-
-  const updateMemberProfile = useCallback(
-    async (patch: { name?: string; icon?: MemberIconId }): Promise<boolean> => {
-      const nextName = patch.name !== undefined ? sanitizeMemberName(patch.name) : undefined;
-      if (patch.name !== undefined && !nextName) {
-        toast.error("Name cannot be empty");
-        return false;
-      }
-      const nextIcon = patch.icon !== undefined ? parseMemberIcon(patch.icon) : undefined;
-      if (patch.icon !== undefined && !nextIcon) return false;
-
-      if (nextName) {
-        memberNameRef.current = nextName;
-        setMemberName(nextName);
-        try {
-          localStorage.setItem("ngeplay_member_name", nextName);
-        } catch {}
-      }
-      if (nextIcon) {
-        memberIconRef.current = nextIcon;
-        setMemberIcon(nextIcon);
-        try {
-          localStorage.setItem("ngeplay_member_icon", nextIcon);
-        } catch {}
-      }
-
-      const cur = roomRef.current;
-      if (!cur) {
-        toast.success(nextName ? "Name updated" : "Avatar updated");
-        return true;
-      }
-      const t0 = Date.now();
-      try {
-        const res = await fetch("/api/room", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "rename",
-            code: cur.code,
-            clientId: getClientId(),
-            ...(nextName ? { name: nextName } : {}),
-            ...(nextIcon ? { icon: nextIcon } : {}),
-          }),
-        });
-        if (res.status === 404) {
-          clearRoomLocal();
-          toast.error("Room not found");
-          return false;
-        }
-        if (!res.ok) throw new Error();
-        const data = (await res.json()) as { room: RoomState; serverNow: number };
-        syncClockOffset(data.serverNow, t0);
-        applyRoomSnapshot(data.room, data.serverNow);
-        toast.success(nextName ? "Name updated" : "Avatar updated");
-        return true;
-      } catch {
-        toast.error("Failed to update profile");
-        return false;
-      }
-    },
-    [applyRoomSnapshot, clearRoomLocal, getClientId, syncClockOffset]
-  );
-
-  const updateMemberName = useCallback(
-    (rawName: string) => updateMemberProfile({ name: rawName }),
-    [updateMemberProfile]
-  );
-
-  const updateMemberIcon = useCallback(
-    (icon: MemberIconId) => updateMemberProfile({ icon }),
-    [updateMemberProfile]
-  );
-
-  const leaveRoom = useCallback(() => {
-    const code = roomRef.current?.code;
-    clearRoomLocal();
-    if (code) {
-      void fetch("/api/room", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "leave", code, clientId: getClientId() }),
-      }).catch(() => {});
-    }
-    toast.success("Left room");
-  }, [clearRoomLocal, getClientId]);
 
   const joinRoomRef = useRef(joinRoom);
   joinRoomRef.current = joinRoom;
@@ -636,11 +282,7 @@ export function useNgePlay() {
       setCurrentIndex(index);
       setIsPlaying(true);
 
-      setHistory((prev) => {
-        const next = [track, ...prev.filter((t) => t.id !== track.id)].slice(0, 30);
-        void writeStored("history", userKeyRef.current, next);
-        return next;
-      });
+      recordHistory(track);
 
       if (roomRef.current) {
         const queueChanged = !isSameQueue(roomRef.current.queue, list);
@@ -666,7 +308,7 @@ export function useNgePlay() {
       );
       player.loadVideo(track.id, 0, true);
     },
-    [clock, player, saveSession, sendRoomCommand]
+    [clock, player, recordHistory, saveSession, sendRoomCommand]
   );
 
   playTrackAtRef.current = playTrackAt;
@@ -791,9 +433,7 @@ export function useNgePlay() {
   useEffect(() => {
     let cancelled = false;
     requestPersistentStorage();
-    getClientId();
-    getMemberName();
-    getMemberIcon();
+    initIdentity();
 
     async function boot() {
       const explorePromise = fetchYouTubeExplore();
@@ -875,6 +515,7 @@ export function useNgePlay() {
       }
 
       hydratedRef.current = true;
+      setHydrating(false);
 
       const needDur = [...parsedQueue, ...parsedHistory, ...parsedLiked].filter(
         (t) => t?.id && (!t.duration || t.duration === "—")
@@ -928,7 +569,7 @@ export function useNgePlay() {
     return () => {
       cancelled = true;
     };
-  }, [clock, getClientId, getMemberIcon, getMemberName]);
+  }, [clock, initIdentity]);
 
   useEffect(() => {
     saveSession();
@@ -1004,49 +645,10 @@ export function useNgePlay() {
     };
   }, [nowPlayingOpen, nowPlayingTab, currentTrack?.id]);
 
-  const playerSeekRef = useRef(player.seekTo);
-  playerSeekRef.current = player.seekTo;
-  const playerPauseRef = useRef(player.pauseVideo);
-  playerPauseRef.current = player.pauseVideo;
-  const playerStateRef = useRef(player.getPlayerState);
-  playerStateRef.current = player.getPlayerState;
-
   onPlayerPlayingRef.current = (actualTime: number) => {
     setPlaybackSignal((n) => n + 1);
-    const cur = roomRef.current;
-    if (!cur) return;
-    if (!cur.isPlaying) {
-      playerSeekRef.current(cur.anchorTime);
-      playerPauseRef.current();
-      return;
-    }
-    const estNow = hasClockOffsetRef.current ? Date.now() + clockOffsetRef.current : Date.now();
-    const expected = computeRoomTime(cur, estNow);
-    if (Math.abs(actualTime - expected) > 0.35 && Date.now() - lastRoomResyncAtRef.current > 1500) {
-      lastRoomResyncAtRef.current = Date.now();
-      const target = expected + 0.12;
-      playerSeekRef.current(target);
-      clock.set(target);
-    }
+    handleRoomPlayerPlaying(actualTime);
   };
-
-  useEffect(() => {
-    if (!room?.code || !room.isPlaying) return;
-    const timer = setInterval(() => {
-      const cur = roomRef.current;
-      if (!cur || !cur.isPlaying) return;
-      if (playerStateRef.current() !== 1) return;
-      const expected = computeRoomTime(cur, Date.now() + clockOffsetRef.current);
-      const actual = clock.getSnapshot().currentTime;
-      if (Math.abs(actual - expected) > 0.5 && Date.now() - lastRoomResyncAtRef.current > 2000) {
-        lastRoomResyncAtRef.current = Date.now();
-        const target = expected + 0.1;
-        playerSeekRef.current(target);
-        clock.set(target);
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [room?.code, room?.isPlaying, clock]);
 
   const cycleLyricVariant = useCallback(() => {
     const len = lyrics?.variants?.length || 0;
@@ -1068,12 +670,6 @@ export function useNgePlay() {
     },
     [sendRoomCommand]
   );
-
-  useEffect(() => {
-    return () => {
-      eventSourceRef.current?.close();
-    };
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1123,7 +719,11 @@ export function useNgePlay() {
     e?.stopPropagation();
     setNowPlayingOpen(false);
     setSearching(true);
+    setOpeningTarget("artist");
     setActiveAlbum(null);
+    setChannelInfo(null);
+    setChannelTracks([]);
+    setChannelCont(undefined);
     setTab("artists");
     try {
       let cid: string | undefined;
@@ -1154,12 +754,15 @@ export function useNgePlay() {
       setChannelCont(data.continuation);
     } finally {
       setSearching(false);
+      setOpeningTarget((cur) => (cur === "artist" ? null : cur));
     }
   }
 
   async function openAlbum(album: AlbumSummary) {
     if (!album.id) return;
     setSearching(true);
+    setOpeningTarget("album");
+    setActiveAlbum(null);
     setChannelInfo(null);
     setTab("albums");
     try {
@@ -1171,6 +774,7 @@ export function useNgePlay() {
       setActiveAlbum(data);
     } finally {
       setSearching(false);
+      setOpeningTarget((cur) => (cur === "album" ? null : cur));
     }
   }
 
@@ -1199,6 +803,7 @@ export function useNgePlay() {
 
   async function handleSelectPlaylist(pl: YouTubePlaylist) {
     setSearching(true);
+    setOpeningTarget(null);
     setActiveAlbum(null);
     setChannelInfo(null);
     setTab("songs");
@@ -1221,6 +826,7 @@ export function useNgePlay() {
     if (q.startsWith("@") && !q.includes(" ")) return openChannel(q);
 
     setSearching(true);
+    setOpeningTarget(null);
     setActiveAlbum(null);
     setChannelInfo(null);
     setTab("songs");
@@ -1260,7 +866,7 @@ export function useNgePlay() {
     const target = customPlaylists.find((p) => p.id === playlistId);
     if (!target) return;
     if (target.tracks.some((t) => t.id === track.id)) {
-      return toast.info(`Already in "${target.name}"`);
+      return toast(`Already in "${target.name}"`);
     }
     const next = customPlaylists.map((p) =>
       p.id === playlistId ? { ...p, tracks: [...p.tracks, track] } : p
@@ -1298,6 +904,12 @@ export function useNgePlay() {
     }
   }
 
+  function clearHistory() {
+    setHistory([]);
+    void writeStored("history", userKeyRef.current, []);
+    toast.success("History cleared");
+  }
+
   function playAll(tracks: Track[]) {
     if (!tracks.length) return;
     queueRef.current = tracks;
@@ -1305,12 +917,17 @@ export function useNgePlay() {
     playTrackAt(0, tracks);
   }
 
-  function openTrackMenu(track: Track, e: React.MouseEvent, customPlaylistId?: string) {
+  function openTrackMenu(
+    track: Track,
+    e: React.MouseEvent,
+    customPlaylistId?: string,
+    playlistOnly = false
+  ) {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = Math.min(window.innerWidth - 220, Math.max(12, rect.right - 208));
     const y = Math.min(window.innerHeight - 280, Math.max(12, rect.bottom + 6));
-    setTrackMenu({ track, x, y, customPlaylistId });
+    setTrackMenu({ track, x, y, customPlaylistId, playlistOnly });
   }
 
   return {
@@ -1330,6 +947,9 @@ export function useNgePlay() {
     activeAlbum,
     setActiveAlbum,
     searching,
+    hydrating,
+    openingTarget,
+    setOpeningTarget,
     customPlaylists,
     activeCustomPlId,
     setActiveCustomPlId,
@@ -1385,6 +1005,7 @@ export function useNgePlay() {
     playTrackNow,
     playAll,
     clearQueue,
+    clearHistory,
     togglePlay: handleTogglePlay,
     handleNext,
     handlePrev,

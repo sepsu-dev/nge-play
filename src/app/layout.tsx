@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
-import { Toaster } from "sonner";
-import { PwaRegister } from "@/components/pwa/pwa-install";
+import { Toaster } from "react-hot-toast";
+import { PwaRegister } from "@/components/pwa/pwa-register";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/app/globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -45,8 +46,27 @@ export default function RootLayout({
     <html lang="en" className={plusJakartaSans.variable}>
       <body className="antialiased font-sans min-h-screen bg-white text-[#18181B]">
         <PwaRegister />
-        {children}
-        <Toaster position="top-center" theme="light" richColors />
+        <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            duration: 3000,
+            className:
+              "!bg-white dark:!bg-[#161922] !text-[#18181B] dark:!text-[#F4F5F7] !border !border-black/[0.06] dark:!border-white/[0.08] !rounded-2xl !px-4 !py-2.5 !text-xs !font-semibold !shadow-lg",
+            success: {
+              iconTheme: {
+                primary: "#FFD014",
+                secondary: "#18181B",
+              },
+            },
+            error: {
+              iconTheme: {
+                primary: "#EF4444",
+                secondary: "#FFFFFF",
+              },
+            },
+          }}
+        />
       </body>
     </html>
   );

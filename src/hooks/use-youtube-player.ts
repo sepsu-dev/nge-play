@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { toast } from "sonner";
+import toast from "react-hot-toast";
 import type { Track } from "@/actions/youtube";
 import type { ClockStore } from "@/lib/playback-clock";
 import {

@@ -4,11 +4,10 @@ import type { Track } from "@/actions/youtube";
 import { HomeDashboard } from "@/components/library/home-dashboard";
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { AlbumsGrid, ArtistsGrid, LibraryView } from "@/components/library/browse-grids";
-import {
-  NewPlaylistModal,
-  TrackContextMenu,
-} from "@/components/library/track-context-menu";
+import { AlbumsGrid, ArtistsGrid } from "@/components/library/browse-grids";
+import { LibraryView } from "@/components/library/library-view";
+import { NewPlaylistModal } from "@/components/library/new-playlist-modal";
+import { TrackContextMenu } from "@/components/library/track-context-menu";
 import { TrackListView } from "@/components/library/track-list-view";
 import { NowPlayingModal } from "@/components/player/now-playing-modal";
 import { PlayerFooter } from "@/components/player/player-footer";
@@ -53,9 +52,17 @@ export default function NgePlayPage() {
 
   function handleSelectTab(nextTab: TabId) {
     s.setTab(nextTab);
+    s.setOpeningTarget(null);
     if (nextTab === "albums") s.setActiveAlbum(null);
     if (nextTab === "artists") s.setChannelInfo(null);
   }
+
+  const listLoading =
+    s.tab === "liked" || s.tab === "history" || s.tab === "playlist"
+      ? s.hydrating
+      : s.tab === "queue"
+      ? s.hydrating || (s.searching && s.queue.length === 0)
+      : s.searching;
 
   const viewKey = `${s.tab}-${s.activeAlbum?.album.id || ""}-${s.channelInfo?.id || ""}-${
     s.tab === "playlist" ? s.activeCustomPlId : ""
@@ -83,6 +90,7 @@ export default function NgePlayPage() {
       <div className="flex-1 flex min-w-0">
         <AppSidebar
           tab={s.tab}
+          hydrating={s.hydrating}
           likedCount={s.liked.length}
           customPlaylists={s.customPlaylists}
           activeCustomPlId={s.activeCustomPlId}
@@ -120,12 +128,13 @@ export default function NgePlayPage() {
                   s.setTab("artists");
                 }}
               />
-            ) : s.tab === "albums" && !s.activeAlbum ? (
+            ) : s.tab === "albums" && !s.activeAlbum && s.openingTarget !== "album" ? (
               <AlbumsGrid loading={s.searching} albums={s.albums} onOpenAlbum={s.openAlbum} />
-            ) : s.tab === "artists" && !s.channelInfo ? (
+            ) : s.tab === "artists" && !s.channelInfo && s.openingTarget !== "artist" ? (
               <ArtistsGrid loading={s.searching} artists={s.artists} onOpenArtist={s.openChannel} />
             ) : s.tab === "library" ? (
               <LibraryView
+                hydrating={s.hydrating}
                 likedCount={s.liked.length}
                 historyCount={s.history.length}
                 customPlaylists={s.customPlaylists}
@@ -140,7 +149,7 @@ export default function NgePlayPage() {
             ) : (
               <TrackListView
                 tab={s.tab}
-                searching={s.searching}
+                searching={listLoading}
                 displayedTracks={displayedTracks}
                 currentTrack={s.currentTrack}
                 isPlaying={s.isPlaying}
@@ -155,6 +164,7 @@ export default function NgePlayPage() {
                 activeCustomPlaylist={activeCustomPlaylist}
                 queueLength={s.queue.length}
                 onBack={() => {
+                  s.setOpeningTarget(null);
                   if (s.tab === "liked" || s.tab === "history" || s.tab === "playlist") {
                     s.setTab("library");
                     return;
@@ -171,6 +181,7 @@ export default function NgePlayPage() {
                 onSelectPlaylist={s.handleSelectPlaylist}
                 onDeleteCustomPlaylist={s.deleteCustomPlaylist}
                 onClearQueue={s.clearQueue}
+                onClearHistory={s.clearHistory}
                 onLoadMoreChannel={s.loadMoreChannel}
               />
             )}
@@ -180,6 +191,7 @@ export default function NgePlayPage() {
 
       <PlayerFooter
         tab={s.tab}
+        loading={s.hydrating || s.searching}
         nowPlayingOpen={s.nowPlayingOpen}
         currentTrack={s.currentTrack}
         isPlaying={s.isPlaying}
@@ -215,6 +227,7 @@ export default function NgePlayPage() {
         onOpenArtist={s.openChannel}
         onRemoveFromPlaylist={s.removeTrackFromPlaylist}
         onAddToPlaylist={s.addTrackToPlaylist}
+        onNewPlaylist={() => s.setNewPlaylistOpen(true)}
       />
 
       <NewPlaylistModal
@@ -252,6 +265,7 @@ export default function NgePlayPage() {
         isCurrentLiked={isCurrentLiked}
         nowPlayingTab={s.nowPlayingTab}
         queue={s.queue}
+        loadingQueue={s.hydrating || (s.searching && !s.queue.length)}
         currentIndex={s.currentIndex}
         lyrics={s.lyrics}
         loadingLyrics={s.loadingLyrics}
@@ -267,6 +281,7 @@ export default function NgePlayPage() {
         onOpenArtist={s.openChannel}
         onToggleLike={s.toggleLike}
         onOpenMenu={(track, e) => s.openTrackMenu(track, e)}
+        onSaveToPlaylist={(track, e) => s.openTrackMenu(track, e, undefined, true)}
         onPlayTrackAt={s.playTrackAt}
         onPlayTrackNow={s.playTrackNow}
         onSeek={s.handleSeek}

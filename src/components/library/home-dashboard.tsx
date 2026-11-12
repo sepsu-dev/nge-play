@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { MoreVertical, Pause, Play } from "lucide-react";
 import type { AlbumSummary, ArtistSummary, Track } from "@/actions/youtube";
-import { TrackCover } from "@/components/library/track-cover";
+import { TrackCover } from "@/components/ui/track-cover";
+import { Tip } from "@/components/ui/tooltip";
 
 interface HomeDashboardProps {
   loading: boolean;
@@ -84,7 +85,15 @@ export function HomeDashboard({
         </div>
 
         {loading && !activeHero ? (
-          <div className="h-[224px] rounded-[24px] bg-[#F7F8FA] dark:bg-[#161922] animate-pulse" />
+          <div className="h-[224px] rounded-[24px] bg-[#F7F8FA] dark:bg-[#161922] px-6 sm:px-8 py-6 flex items-center justify-between gap-5 animate-pulse">
+            <div className="flex-1 space-y-3">
+              <div className="h-3 w-20 rounded bg-[#EAECEF] dark:bg-[#1E222D]" />
+              <div className="h-6 w-3/4 max-w-[260px] rounded-lg bg-[#EAECEF] dark:bg-[#1E222D]" />
+              <div className="h-3.5 w-1/2 max-w-[160px] rounded bg-[#EAECEF] dark:bg-[#1E222D]" />
+              <div className="h-9 w-28 rounded-full bg-[#EAECEF] dark:bg-[#1E222D] mt-2" />
+            </div>
+            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl bg-[#EAECEF] dark:bg-[#1E222D] shrink-0" />
+          </div>
         ) : activeHero ? (
           <div
             onClick={() => {
@@ -199,14 +208,16 @@ export function HomeDashboard({
                     {track.duration}
                   </span>
 
-                  <button
-                    type="button"
-                    aria-label="Track options"
-                    onClick={(e) => onOpenMenu(track, e)}
-                    className="p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg transition-colors cursor-pointer shrink-0"
-                  >
-                    <MoreVertical className="w-4 h-4" />
-                  </button>
+                  <Tip label="More options">
+                    <button
+                      type="button"
+                      aria-label="Track options"
+                      onClick={(e) => onOpenMenu(track, e)}
+                      className="p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg transition-colors cursor-pointer shrink-0"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                  </Tip>
                 </div>
               );
             })
@@ -284,14 +295,16 @@ export function HomeDashboard({
                         {track.channel}
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      aria-label="Track options"
-                      onClick={(e) => onOpenMenu(track, e)}
-                      className="p-1 -mr-1 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg shrink-0 cursor-pointer"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
+                    <Tip label="More options">
+                      <button
+                        type="button"
+                        aria-label="Track options"
+                        onClick={(e) => onOpenMenu(track, e)}
+                        className="p-1 -mr-1 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg shrink-0 cursor-pointer"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </Tip>
                   </div>
                 </div>
               );
@@ -316,10 +329,13 @@ export function HomeDashboard({
         <div className="space-y-3">
           {loading && !topArtists.length ? (
             [0, 1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-14 rounded-2xl bg-[#F7F8FA] dark:bg-[#161922] animate-pulse"
-              />
+              <div key={i} className="flex items-center gap-3.5 p-2 -mx-2 animate-pulse">
+                <div className="w-11 h-11 rounded-full bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0" />
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="h-3.5 w-1/2 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+                  <div className="h-3 w-1/3 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+                </div>
+              </div>
             ))
           ) : (
             topArtists.map((artist) => (

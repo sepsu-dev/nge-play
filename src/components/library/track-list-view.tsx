@@ -8,7 +8,8 @@ import type {
   Track,
   YouTubePlaylist,
 } from "@/actions/youtube";
-import { TrackCover } from "@/components/library/track-cover";
+import { TrackCover } from "@/components/ui/track-cover";
+import { Tip } from "@/components/ui/tooltip";
 import { formatTime, parseDurationSec } from "@/lib/format";
 import type { CustomPlaylist, TabId } from "@/lib/player-state";
 
@@ -38,6 +39,7 @@ interface TrackListViewProps {
   onSelectPlaylist: (pl: YouTubePlaylist) => void;
   onDeleteCustomPlaylist: (id: string) => void;
   onClearQueue: () => void;
+  onClearHistory: () => void;
   onLoadMoreChannel: () => void;
 }
 
@@ -88,6 +90,7 @@ export function TrackListView({
   onSelectPlaylist,
   onDeleteCustomPlaylist,
   onClearQueue,
+  onClearHistory,
   onLoadMoreChannel,
 }: TrackListViewProps) {
   const totalSec = displayedTracks.reduce((acc, t) => acc + parseDurationSec(t.duration), 0);
@@ -113,62 +116,83 @@ export function TrackListView({
       ? activeCustomPlaylist?.name || "Playlist"
       : "Discover";
 
+  const showHeaderSkeleton =
+    searching &&
+    ((tab === "albums" && !activeAlbum) ||
+      (tab === "artists" && !channelInfo) ||
+      (tab === "songs" && !displayedTracks.length));
+
   return (
     <>
       <section className="flex flex-wrap items-center justify-between gap-3 pb-4 shrink-0">
         <div className="flex items-center gap-3.5 min-w-0">
-          {((tab === "albums" && activeAlbum) ||
-            (tab === "artists" && channelInfo) ||
+          {((tab === "albums" && (activeAlbum || searching)) ||
+            (tab === "artists" && (channelInfo || searching)) ||
             tab === "liked" ||
             tab === "history" ||
             tab === "playlist") && (
-            <button
-              onClick={onBack}
-              title="Back"
-              className={`p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1E222D] text-[#18181B] dark:text-white transition-colors cursor-pointer shrink-0 ${
-                tab === "liked" || tab === "history" || tab === "playlist" ? "lg:hidden" : ""
-              }`}
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
+            <Tip label="Back">
+              <button
+                onClick={onBack}
+                aria-label="Back"
+                className={`p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1E222D] text-[#18181B] dark:text-white transition-colors cursor-pointer shrink-0 ${
+                  tab === "liked" || tab === "history" || tab === "playlist" ? "lg:hidden" : ""
+                }`}
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            </Tip>
           )}
           <div className="w-14 h-14 rounded-2xl overflow-hidden bg-[#F3F4F6] dark:bg-[#161922] border border-black/[0.05] dark:border-white/[0.08] shrink-0">
-            <TrackCover
-              src={heroCover}
-              trackId={
-                tab === "artists" && channelInfo?.avatar
-                  ? undefined
-                  : displayedTracks[0]?.id || currentTrack?.id
-              }
-              alt={sectionTitle}
-              iconClass="w-5 h-5"
-            />
+            {showHeaderSkeleton ? (
+              <div className="w-full h-full bg-[#EAECEF] dark:bg-[#1E222D] animate-pulse" />
+            ) : (
+              <TrackCover
+                src={heroCover}
+                trackId={
+                  tab === "artists" && channelInfo?.avatar
+                    ? undefined
+                    : displayedTracks[0]?.id || currentTrack?.id
+                }
+                alt={sectionTitle}
+                iconClass="w-5 h-5"
+              />
+            )}
           </div>
           <div className="min-w-0">
-            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#18181B] dark:text-white truncate">
-              {sectionTitle}
-            </h1>
-            <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mt-0.5 flex flex-wrap items-center gap-1.5 truncate">
-              {tab === "artists" && channelInfo ? (
-                <span>
-                  {[channelInfo.handle, channelInfo.subscribers, channelInfo.videoCount]
-                    .filter(Boolean)
-                    .join(" · ") || "Artist"}
-                </span>
-              ) : searching && displayedTracks.length === 0 ? (
-                <span>Loading...</span>
-              ) : (
-                <>
-                  <span>{displayedTracks.length} tracks</span>
-                  {totalSec > 0 && (
+            {showHeaderSkeleton ? (
+              <div className="space-y-2 animate-pulse">
+                <div className="h-5 w-44 rounded-lg bg-[#EAECEF] dark:bg-[#1E222D]" />
+                <div className="h-3 w-24 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+              </div>
+            ) : (
+              <>
+                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#18181B] dark:text-white truncate">
+                  {sectionTitle}
+                </h1>
+                <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mt-0.5 flex flex-wrap items-center gap-1.5 truncate">
+                  {tab === "artists" && channelInfo ? (
+                    <span>
+                      {[channelInfo.handle, channelInfo.subscribers, channelInfo.videoCount]
+                        .filter(Boolean)
+                        .join(" · ") || "Artist"}
+                    </span>
+                  ) : searching ? (
+                    <span className="inline-block h-3 w-20 rounded bg-[#EAECEF] dark:bg-[#1E222D] animate-pulse" />
+                  ) : (
                     <>
-                      <span className="text-[#D1D5DB] dark:text-white/20">·</span>
-                      <span>{formatTime(totalSec)}</span>
+                      <span>{displayedTracks.length} tracks</span>
+                      {totalSec > 0 && (
+                        <>
+                          <span className="text-[#D1D5DB] dark:text-white/20">·</span>
+                          <span>{formatTime(totalSec)}</span>
+                        </>
+                      )}
                     </>
                   )}
-                </>
-              )}
-            </p>
+                </p>
+              </>
+            )}
           </div>
         </div>
 
@@ -200,27 +224,44 @@ export function TrackListView({
               Clear
             </button>
           )}
+          {tab === "history" && displayedTracks.length > 0 && (
+            <button
+              onClick={onClearHistory}
+              className="flex items-center gap-1 text-xs font-semibold text-[#6B7280] hover:text-red-600 px-2.5 py-2 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear
+            </button>
+          )}
         </div>
       </section>
 
-      {tab === "songs" && playlists.length > 0 && (
+      {tab === "songs" && (playlists.length > 0 || searching) && (
         <div className="flex items-center gap-2 overflow-x-auto pb-3 shrink-0">
-          {playlists.map((pl) => {
-            const active = activePlaylistId === pl.id;
-            return (
-              <button
-                key={pl.id}
-                onClick={() => onSelectPlaylist(pl)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border whitespace-nowrap transition-all duration-150 cursor-pointer ${
-                  active
-                    ? "bg-[#FFD014] text-[#18181B] border-[#FFD014] shadow-sm"
-                    : "bg-[#F7F8FA] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] border-black/[0.04] dark:border-white/[0.06] hover:text-[#18181B] dark:hover:text-white"
-                }`}
-              >
-                {pl.title}
-              </button>
-            );
-          })}
+          {playlists.length === 0 && searching
+            ? [84, 104, 92, 112, 88].map((w, i) => (
+                <div
+                  key={i}
+                  style={{ width: `${w}px` }}
+                  className="h-7 rounded-full bg-[#F7F8FA] dark:bg-[#161922] animate-pulse shrink-0"
+                />
+              ))
+            : playlists.map((pl) => {
+                const active = activePlaylistId === pl.id;
+                return (
+                  <button
+                    key={pl.id}
+                    onClick={() => onSelectPlaylist(pl)}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                      active
+                        ? "bg-[#FFD014] text-[#18181B] border-[#FFD014] shadow-sm"
+                        : "bg-[#F7F8FA] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] border-black/[0.04] dark:border-white/[0.06] hover:text-[#18181B] dark:hover:text-white"
+                    }`}
+                  >
+                    {pl.title}
+                  </button>
+                );
+              })}
         </div>
       )}
 
@@ -296,26 +337,30 @@ export function TrackListView({
                 </p>
 
                 <div className="flex items-center justify-end gap-0.5">
-                  <button
-                    onClick={(e) => onToggleLike(track, e)}
-                    title="Like"
-                    className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors cursor-pointer"
-                  >
-                    <Heart
-                      className={`w-3.5 h-3.5 ${
-                        isTrackLiked ? "fill-[#FFD014] text-[#FFD014]" : ""
-                      }`}
-                    />
-                  </button>
-                  <button
-                    onClick={(e) =>
-                      onOpenMenu(track, e, tab === "playlist" ? activeCustomPlaylist?.id : undefined)
-                    }
-                    title="More options"
-                    className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors cursor-pointer"
-                  >
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
+                  <Tip label={isTrackLiked ? "Unlike" : "Like"}>
+                    <button
+                      onClick={(e) => onToggleLike(track, e)}
+                      aria-label={isTrackLiked ? "Unlike" : "Like"}
+                      className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors cursor-pointer"
+                    >
+                      <Heart
+                        className={`w-3.5 h-3.5 ${
+                          isTrackLiked ? "fill-[#FFD014] text-[#FFD014]" : ""
+                        }`}
+                      />
+                    </button>
+                  </Tip>
+                  <Tip label="More options">
+                    <button
+                      onClick={(e) =>
+                        onOpenMenu(track, e, tab === "playlist" ? activeCustomPlaylist?.id : undefined)
+                      }
+                      aria-label="More options"
+                      className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors cursor-pointer"
+                    >
+                      <MoreVertical className="w-3.5 h-3.5" />
+                    </button>
+                  </Tip>
                 </div>
               </div>
             );

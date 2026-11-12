@@ -19,13 +19,15 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { ArtistSummary, Track } from "@/actions/youtube";
-import { TrackCover } from "@/components/library/track-cover";
+import { TrackCover } from "@/components/ui/track-cover";
+import { Tip } from "@/components/ui/tooltip";
 import { formatTime } from "@/lib/format";
 import { usePlaybackClock, type ClockStore } from "@/lib/playback-clock";
 import type { TabId } from "@/lib/player-state";
 
 interface PlayerFooterProps {
   tab: TabId;
+  loading?: boolean;
   nowPlayingOpen: boolean;
   currentTrack: Track | undefined;
   isPlaying: boolean;
@@ -53,6 +55,7 @@ interface PlayerFooterProps {
 
 export function PlayerFooter({
   tab,
+  loading = false,
   nowPlayingOpen,
   currentTrack,
   isPlaying,
@@ -168,6 +171,14 @@ export function PlayerFooter({
                   {formatTime(currentTime)} - {formatTime(duration)}
                 </span>
               </>
+            ) : loading ? (
+              <div className="flex items-center gap-3 flex-1 min-w-0 animate-pulse">
+                <div className="w-11 h-11 rounded-xl bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="h-3.5 w-32 max-w-full rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+                  <div className="h-3 w-20 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+                </div>
+              </div>
             ) : (
               <div className="flex items-center gap-3 text-xs text-[#9CA3AF]">
                 <div className="w-11 h-11 rounded-xl bg-[#F4F5F7] dark:bg-[#161922] flex items-center justify-center">
@@ -179,71 +190,82 @@ export function PlayerFooter({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-            <button
-              onClick={onToggleRepeat}
-              title="Repeat"
-              className={`hidden sm:inline-flex p-1.5 rounded-lg transition-colors cursor-pointer ${
-                repeat
-                  ? "text-[#B45309] dark:text-[#FFD014] bg-[#FFF9DB] dark:bg-[#FFD014]/15"
-                  : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
-              }`}
-            >
-              <Repeat className="w-4 h-4" />
-            </button>
-            <button
-              onClick={onPrev}
-              title="Previous"
-              className="inline-flex p-1.5 text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-90 cursor-pointer"
-            >
-              <SkipBack className="w-4 h-4 fill-current" />
-            </button>
-            <button
-              onClick={onTogglePlay}
-              title={isPlaying ? "Pause" : "Play"}
-              className="w-10 h-10 rounded-full bg-[#FFD014] hover:bg-[#F5C400] text-[#18181B] flex items-center justify-center shadow-[0_6px_16px_rgba(255,208,20,0.4)] transition-transform active:scale-90 cursor-pointer"
-            >
-              {isPlaying ? (
-                <Pause className="w-4 h-4 fill-current" />
-              ) : (
-                <Play className="w-4 h-4 fill-current ml-0.5" />
-              )}
-            </button>
-            <button
-              onClick={onNext}
-              title="Next"
-              className="p-1.5 text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-90 cursor-pointer"
-            >
-              <SkipForward className="w-4 h-4 fill-current" />
-            </button>
-            <button
-              onClick={onToggleShuffle}
-              title="Shuffle"
-              className={`hidden sm:inline-flex p-1.5 rounded-lg transition-colors cursor-pointer ${
-                shuffle
-                  ? "text-[#B45309] dark:text-[#FFD014] bg-[#FFF9DB] dark:bg-[#FFD014]/15"
-                  : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
-              }`}
-            >
-              <Shuffle className="w-4 h-4" />
-            </button>
+            <Tip label="Repeat">
+              <button
+                onClick={onToggleRepeat}
+                aria-label="Repeat"
+                className={`hidden sm:inline-flex p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  repeat
+                    ? "text-[#B45309] dark:text-[#FFD014] bg-[#FFF9DB] dark:bg-[#FFD014]/15"
+                    : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
+                }`}
+              >
+                <Repeat className="w-4 h-4" />
+              </button>
+            </Tip>
+            <Tip label="Previous">
+              <button
+                onClick={onPrev}
+                aria-label="Previous"
+                className="inline-flex p-1.5 text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-90 cursor-pointer"
+              >
+                <SkipBack className="w-4 h-4 fill-current" />
+              </button>
+            </Tip>
+            <Tip label={isPlaying ? "Pause" : "Play"}>
+              <button
+                onClick={onTogglePlay}
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className="w-10 h-10 rounded-full bg-[#FFD014] hover:bg-[#F5C400] text-[#18181B] flex items-center justify-center shadow-[0_6px_16px_rgba(255,208,20,0.4)] transition-transform active:scale-90 cursor-pointer"
+              >
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
+              </button>
+            </Tip>
+            <Tip label="Next">
+              <button
+                onClick={onNext}
+                aria-label="Next"
+                className="p-1.5 text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-90 cursor-pointer"
+              >
+                <SkipForward className="w-4 h-4 fill-current" />
+              </button>
+            </Tip>
+            <Tip label="Shuffle">
+              <button
+                onClick={onToggleShuffle}
+                aria-label="Shuffle"
+                className={`hidden sm:inline-flex p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  shuffle
+                    ? "text-[#B45309] dark:text-[#FFD014] bg-[#FFF9DB] dark:bg-[#FFD014]/15"
+                    : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
+                }`}
+              >
+                <Shuffle className="w-4 h-4" />
+              </button>
+            </Tip>
           </div>
-
 
           <div className="flex items-center justify-end gap-1.5 sm:gap-2.5 md:flex-1 md:max-w-[32%] shrink-0">
             <div onPointerDown={(e) => e.stopPropagation()} className="relative flex items-center group/vol">
               {mobileVolOpen && (
                 <div className="md:hidden absolute right-0 bottom-11 bg-white dark:bg-[#161922] rounded-2xl shadow-xl border border-black/[0.06] dark:border-white/[0.08] px-3 py-2.5 flex items-center gap-2.5 z-50 np-pop-enter">
-                  <button
-                    onClick={onToggleMute}
-                    title={muted ? "Unmute" : "Mute"}
-                    className="p-1 text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white cursor-pointer shrink-0"
-                  >
-                    {muted || volume === 0 ? (
-                      <VolumeX className="w-4 h-4 text-[#B45309] dark:text-[#FFD014]" />
-                    ) : (
-                      <Volume2 className="w-4 h-4" />
-                    )}
-                  </button>
+                  <Tip label={muted ? "Unmute" : "Mute"}>
+                    <button
+                      onClick={onToggleMute}
+                      aria-label={muted ? "Unmute" : "Mute"}
+                      className="p-1 text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white cursor-pointer shrink-0"
+                    >
+                      {muted || volume === 0 ? (
+                        <VolumeX className="w-4 h-4 text-[#B45309] dark:text-[#FFD014]" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </Tip>
                   <div className="relative w-24 h-1.5 bg-[#EAECEF] dark:bg-white/15 rounded-full flex items-center">
                     <div className="h-full bg-[#FFD014] rounded-full" style={{ width: `${volPct}%` }} />
                     <span
@@ -281,52 +303,58 @@ export function PlayerFooter({
                   />
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  if (window.matchMedia("(min-width: 768px)").matches) onToggleMute();
-                  else onToggleMobileVol();
-                }}
-                title={muted ? "Unmute" : "Volume"}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  mobileVolOpen
-                    ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014] md:bg-transparent md:text-[#9CA3AF]"
-                    : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
-                }`}
-              >
-                {muted || volume === 0 ? (
-                  <VolumeX className="w-4 h-4 text-[#B45309] dark:text-[#FFD014]" />
-                ) : (
-                  <Volume2 className="w-4 h-4" />
-                )}
-              </button>
+              <Tip label={muted ? "Unmute" : "Volume"}>
+                <button
+                  onClick={() => {
+                    if (window.matchMedia("(min-width: 768px)").matches) onToggleMute();
+                    else onToggleMobileVol();
+                  }}
+                  aria-label={muted ? "Unmute" : "Volume"}
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                    mobileVolOpen
+                      ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014] md:bg-transparent md:text-[#9CA3AF]"
+                      : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
+                  }`}
+                >
+                  {muted || volume === 0 ? (
+                    <VolumeX className="w-4 h-4 text-[#B45309] dark:text-[#FFD014]" />
+                  ) : (
+                    <Volume2 className="w-4 h-4" />
+                  )}
+                </button>
+              </Tip>
             </div>
 
             {currentTrack && (
-              <button
-                onClick={() => onToggleLike(currentTrack)}
-                title="Like"
-                className="hidden sm:inline-flex p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-90 cursor-pointer"
-              >
-                <Heart className={`w-4 h-4 ${isCurrentLiked ? "fill-[#FFD014] text-[#FFD014]" : ""}`} />
-              </button>
+              <Tip label={isCurrentLiked ? "Unlike" : "Like"}>
+                <button
+                  onClick={() => onToggleLike(currentTrack)}
+                  aria-label={isCurrentLiked ? "Unlike" : "Like"}
+                  className="hidden sm:inline-flex p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-90 cursor-pointer"
+                >
+                  <Heart className={`w-4 h-4 ${isCurrentLiked ? "fill-[#FFD014] text-[#FFD014]" : ""}`} />
+                </button>
+              </Tip>
             )}
 
             {currentTrack && (
-              <button
-                onClick={onToggleNowPlaying}
-                title={nowPlayingOpen ? "Close player" : "Open player"}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  nowPlayingOpen
-                    ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014]"
-                    : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
-                }`}
-              >
-                <ChevronUp
-                  className={`w-4 h-4 transition-transform duration-200 ${
-                    nowPlayingOpen ? "rotate-180" : ""
+              <Tip label={nowPlayingOpen ? "Close player" : "Open player"}>
+                <button
+                  onClick={onToggleNowPlaying}
+                  aria-label={nowPlayingOpen ? "Close player" : "Open player"}
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                    nowPlayingOpen
+                      ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014]"
+                      : "text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
                   }`}
-                />
-              </button>
+                >
+                  <ChevronUp
+                    className={`w-4 h-4 transition-transform duration-200 ${
+                      nowPlayingOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+              </Tip>
             )}
           </div>
         </div>

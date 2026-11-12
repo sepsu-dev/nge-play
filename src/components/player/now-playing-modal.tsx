@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   Heart,
@@ -9,8 +9,10 @@ import {
   Pause,
   Play,
 } from "lucide-react";
-import type { ArtistSummary, LyricsResult, Track } from "@/actions/youtube";
-import { TrackCover } from "@/components/library/track-cover";
+import type { LyricsResult } from "@/actions/lyrics";
+import type { ArtistSummary, Track } from "@/actions/youtube";
+import { TrackCover } from "@/components/ui/track-cover";
+import { Tip } from "@/components/ui/tooltip";
 import { usePlaybackClock, type ClockStore } from "@/lib/playback-clock";
 
 interface NowPlayingModalProps {
@@ -20,6 +22,7 @@ interface NowPlayingModalProps {
   isCurrentLiked: boolean;
   nowPlayingTab: "upnext" | "lyrics" | "related";
   queue: Track[];
+  loadingQueue?: boolean;
   currentIndex: number;
   lyrics: LyricsResult | null;
   loadingLyrics: boolean;
@@ -35,12 +38,30 @@ interface NowPlayingModalProps {
   onOpenArtist: (track: Track | ArtistSummary | string, e?: React.MouseEvent) => void;
   onToggleLike: (track: Track) => void;
   onOpenMenu: (track: Track, e: React.MouseEvent) => void;
+  onSaveToPlaylist: (track: Track, e: React.MouseEvent) => void;
   onPlayTrackAt: (index: number, list: Track[]) => void;
   onPlayTrackNow: (track: Track, list: Track[]) => void;
   onSeek: (sec: number) => void;
 }
 
 const LYRIC_LEAD_SEC = 0.1;
+
+function MiniTrackSkeletonList() {
+  return (
+    <div className="space-y-1.5 animate-pulse">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="flex items-center gap-3 p-2.5 rounded-2xl">
+          <div className="w-11 h-11 rounded-xl bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0" />
+          <div className="flex-1 min-w-0 space-y-2">
+            <div className="h-3.5 w-3/5 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+            <div className="h-3 w-2/5 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
+          </div>
+          <div className="h-3 w-9 rounded bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function NowPlayingModal({
   open,
@@ -49,6 +70,7 @@ export function NowPlayingModal({
   isCurrentLiked,
   nowPlayingTab,
   queue,
+  loadingQueue = false,
   currentIndex,
   lyrics,
   loadingLyrics,
@@ -64,13 +86,18 @@ export function NowPlayingModal({
   onOpenArtist,
   onToggleLike,
   onOpenMenu,
+  onSaveToPlaylist,
   onPlayTrackAt,
   onPlayTrackNow,
   onSeek,
 }: NowPlayingModalProps) {
   const { currentTime } = usePlaybackClock(clock);
+  const [showMiniHeader, setShowMiniHeader] = useState(false);
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const heroRef = useRef<HTMLDivElement | null>(null);
   const lyricsModalBoxRef = useRef<HTMLDivElement | null>(null);
   const activeModalLyricRef = useRef<HTMLButtonElement | null>(null);
+  const manualPauseUntilRef = useRef(0);
 
   const activeLyrics = lyrics?.variants?.[lyricVariantIdx] || lyrics;
   const activeLyricIndex = activeLyrics?.synced.length
@@ -81,15 +108,61 @@ export function NowPlayingModal({
     : -1;
 
   useEffect(() => {
-    const box = lyricsModalBoxRef.current;
+    setShowMiniHeader(false);
+    mainScrollRef.current?.scrollTo({ top: 0 });
+  }, [open, currentTrack?.id]);
+
+  useEffect(() => {
+    const root = mainScrollRef.current;
+    const target = heroRef.current;
+    if (!open || !root || !target) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (window.innerWidth >= 1024) {
+          setShowMiniHeader(false);
+          return;
+        }
+        setShowMiniHeader(!entry.isIntersecting);
+      },
+      { root, threshold: 0.1 }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [open, currentTrack?.id]);
+
+  useEffect(() => {
     const el = activeModalLyricRef.current;
-    if (open && nowPlayingTab === "lyrics" && box && el) {
-      box.scrollTo({
-        top: Math.max(0, el.offsetTop - box.clientHeight * 0.38),
-        behavior: "smooth",
-      });
+    if (!open || nowPlayingTab !== "lyrics" || !el) return;
+
+    if (window.innerWidth >= 1024) {
+      const box = lyricsModalBoxRef.current;
+      if (box) {
+        box.scrollTo({
+          top: Math.max(0, el.offsetTop - box.clientHeight * 0.38),
+          behavior: "smooth",
+        });
+      }
+      return;
     }
+
+    if (Date.now() < manualPauseUntilRef.current) return;
+    const container = mainScrollRef.current;
+    if (!container) return;
+    const cRect = container.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    const target = container.scrollTop + (eRect.top - cRect.top) - container.clientHeight * 0.45;
+    container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
   }, [activeLyricIndex, open, nowPlayingTab]);
+
+  const pauseAutoScroll = () => {
+    manualPauseUntilRef.current = Date.now() + 3500;
+  };
+
+  const scrollToHero = () => {
+    manualPauseUntilRef.current = Date.now() + 3500;
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   if (!currentTrack) return null;
 
@@ -102,20 +175,91 @@ export function NowPlayingModal({
           : "opacity-0 translate-y-8 invisible pointer-events-none"
       }`}
     >
-      <div className="flex items-center justify-between px-5 sm:px-10 py-4 border-b border-black/[0.04] dark:border-white/[0.06] shrink-0">
-        <span className="text-xs font-bold tracking-wide text-[#9CA3AF]">Now Playing</span>
-        <button
-          onClick={onClose}
-          title="Minimize player"
-          className="p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#FFF9DB] dark:hover:bg-[#1E222D] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-95 cursor-pointer"
-        >
-          <ChevronDown className="w-4 h-4" />
-        </button>
+      <div className="flex items-center justify-between gap-3 px-5 sm:px-10 py-3 sm:py-4 border-b border-black/[0.04] dark:border-white/[0.06] shrink-0">
+        <div className="relative flex-1 min-w-0 h-9 flex items-center">
+          <span
+            className={`text-xs font-bold tracking-wide text-[#9CA3AF] transition-all duration-200 ${
+              showMiniHeader
+                ? "opacity-0 -translate-y-1 pointer-events-none lg:opacity-100 lg:translate-y-0"
+                : "opacity-100 translate-y-0"
+            }`}
+          >
+            Now Playing
+          </span>
+          <div
+            className={`lg:hidden absolute inset-0 flex items-center gap-2.5 transition-all duration-200 ${
+              showMiniHeader
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-1 pointer-events-none"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={scrollToHero}
+              className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-lg overflow-hidden bg-[#F3F4F6] dark:bg-[#161922] border border-black/[0.04] dark:border-white/[0.08] shrink-0">
+                <TrackCover
+                  src={currentTrack.thumbnail}
+                  trackId={currentTrack.id}
+                  alt={currentTrack.title}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-[#18181B] dark:text-white truncate">
+                  {currentTrack.title}
+                </p>
+                <p className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] truncate">
+                  {currentTrack.channel}
+                </p>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleLike(currentTrack)}
+              aria-label={isCurrentLiked ? "Unlike" : "Like"}
+              className={`p-1.5 rounded-full border transition-all active:scale-95 cursor-pointer shrink-0 ${
+                isCurrentLiked
+                  ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 border-[#FFD014] text-[#B45309] dark:text-[#FFD014]"
+                  : "bg-[#F7F8FA] dark:bg-[#161922] border-black/[0.04] dark:border-white/[0.08] text-[#4B5563] dark:text-[#9CA3AF]"
+              }`}
+            >
+              <Heart
+                className={`w-3.5 h-3.5 ${isCurrentLiked ? "fill-[#FFD014] text-[#FFD014]" : ""}`}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => onSaveToPlaylist(currentTrack, e)}
+              aria-label="Save to playlist"
+              className="p-1.5 rounded-full bg-[#F7F8FA] dark:bg-[#161922] border border-black/[0.04] dark:border-white/[0.08] text-[#4B5563] dark:text-[#9CA3AF] transition-all active:scale-95 cursor-pointer shrink-0"
+            >
+              <ListPlus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <Tip label="Minimize player" side="bottom">
+          <button
+            onClick={onClose}
+            aria-label="Minimize player"
+            className="p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#FFF9DB] dark:hover:bg-[#1E222D] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors active:scale-95 cursor-pointer shrink-0"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+        </Tip>
       </div>
 
-      <div className="w-full max-w-6xl mx-auto flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-6 lg:gap-12 px-5 sm:px-10 py-6 overflow-y-auto lg:overflow-hidden">
-        <div className="flex flex-col items-center justify-center text-center lg:py-4 shrink-0">
-          <div className="w-52 h-52 sm:w-72 sm:h-72 lg:w-full lg:max-w-[380px] aspect-square rounded-[28px] overflow-hidden bg-[#F3F4F6] dark:bg-[#161922] shadow-[0_24px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_24px_60px_rgba(0,0,0,0.55)] border border-black/[0.04] dark:border-white/[0.08] transition-transform duration-300">
+      <div
+        ref={mainScrollRef}
+        onTouchStart={pauseAutoScroll}
+        onWheel={pauseAutoScroll}
+        className="w-full max-w-6xl mx-auto flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-5 lg:gap-12 px-5 sm:px-10 lg:py-6 overflow-y-auto lg:overflow-hidden overscroll-contain"
+      >
+        <div
+          ref={heroRef}
+          className="flex flex-col items-center justify-center text-center pt-5 lg:py-4 shrink-0"
+        >
+          <div className="w-48 h-48 sm:w-64 sm:h-64 lg:w-full lg:max-w-[380px] aspect-square rounded-[24px] lg:rounded-[28px] overflow-hidden bg-[#F3F4F6] dark:bg-[#161922] shadow-[0_24px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_24px_60px_rgba(0,0,0,0.55)] border border-black/[0.04] dark:border-white/[0.08] transition-transform duration-300">
             <TrackCover
               src={currentTrack.thumbnail}
               trackId={currentTrack.id}
@@ -123,7 +267,7 @@ export function NowPlayingModal({
               iconClass="w-12 h-12"
             />
           </div>
-          <h2 className="text-lg sm:text-2xl font-extrabold tracking-tight text-[#18181B] dark:text-white mt-5 max-w-md line-clamp-2">
+          <h2 className="text-lg sm:text-2xl font-extrabold tracking-tight text-[#18181B] dark:text-white mt-4 lg:mt-5 max-w-md line-clamp-2">
             {currentTrack.title}
           </h2>
           <button
@@ -135,7 +279,7 @@ export function NowPlayingModal({
           >
             {currentTrack.channel}
           </button>
-          <div className="flex items-center gap-2.5 mt-4">
+          <div className="flex items-center gap-2.5 mt-3.5 lg:mt-4">
             <button
               onClick={() => onToggleLike(currentTrack)}
               className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 border transition-all active:scale-95 cursor-pointer ${
@@ -144,11 +288,14 @@ export function NowPlayingModal({
                   : "bg-[#F7F8FA] dark:bg-[#161922] border-black/[0.04] dark:border-white/[0.08] text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white"
               }`}
             >
-              <Heart className={`w-3.5 h-3.5 ${isCurrentLiked ? "fill-[#FFD014] text-[#FFD014]" : ""}`} />
+              <Heart
+                className={`w-3.5 h-3.5 ${isCurrentLiked ? "fill-[#FFD014] text-[#FFD014]" : ""}`}
+              />
               <span>{isCurrentLiked ? "Liked" : "Like"}</span>
             </button>
             <button
-              onClick={(e) => onOpenMenu(currentTrack, e)}
+              type="button"
+              onClick={(e) => onSaveToPlaylist(currentTrack, e)}
               className="px-4 py-2 rounded-full text-xs font-semibold bg-[#F7F8FA] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1E222D] border border-black/[0.04] dark:border-white/[0.08] text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
             >
               <ListPlus className="w-3.5 h-3.5" />
@@ -157,8 +304,8 @@ export function NowPlayingModal({
           </div>
         </div>
 
-        <div className="flex flex-col min-h-[320px] lg:min-h-0">
-          <div className="flex items-center justify-between border-b border-black/[0.06] dark:border-white/[0.08] shrink-0">
+        <div className="flex flex-col lg:min-h-0">
+          <div className="sticky top-0 lg:static z-10 -mx-5 px-5 pt-2 sm:-mx-10 sm:px-10 lg:mx-0 lg:px-0 lg:pt-0 bg-white/95 dark:bg-[#0D0F14]/95 backdrop-blur-md lg:bg-transparent lg:dark:bg-transparent lg:backdrop-blur-none flex items-center justify-between border-b border-black/[0.06] dark:border-white/[0.08] shrink-0">
             <div className="flex items-center gap-6">
               {[
                 { id: "upnext", label: "Up Next" },
@@ -183,41 +330,45 @@ export function NowPlayingModal({
             </div>
             {nowPlayingTab === "lyrics" && activeLyrics?.synced.length ? (
               <div className="mb-2 flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onChangeLyricOffset(Math.round((lyricOffset - 0.5) * 10) / 10)}
-                  title="Delay lyrics 0.5s"
-                  className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
-                >
-                  -0.5s
-                </button>
+                <Tip label="Delay lyrics 0.5s">
+                  <button
+                    type="button"
+                    onClick={() => onChangeLyricOffset(Math.round((lyricOffset - 0.5) * 10) / 10)}
+                    className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
+                  >
+                    -0.5s
+                  </button>
+                </Tip>
                 {lyricOffset !== 0 && (
-                  <button
-                    type="button"
-                    onClick={() => onChangeLyricOffset(0)}
-                    title="Reset lyric sync offset"
-                    className="px-1.5 py-1 rounded-lg bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014] text-[11px] font-semibold cursor-pointer tabular-nums"
-                  >
-                    {lyricOffset > 0 ? `+${lyricOffset.toFixed(1)}s` : `${lyricOffset.toFixed(1)}s`}
-                  </button>
+                  <Tip label="Reset lyric sync offset">
+                    <button
+                      type="button"
+                      onClick={() => onChangeLyricOffset(0)}
+                      className="px-1.5 py-1 rounded-lg bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014] text-[11px] font-semibold cursor-pointer tabular-nums"
+                    >
+                      {lyricOffset > 0 ? `+${lyricOffset.toFixed(1)}s` : `${lyricOffset.toFixed(1)}s`}
+                    </button>
+                  </Tip>
                 )}
-                <button
-                  type="button"
-                  onClick={() => onChangeLyricOffset(Math.round((lyricOffset + 0.5) * 10) / 10)}
-                  title="Advance lyrics 0.5s"
-                  className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
-                >
-                  +0.5s
-                </button>
-                {lyrics?.variants && lyrics.variants.length > 1 ? (
+                <Tip label="Advance lyrics 0.5s">
                   <button
                     type="button"
-                    onClick={onCycleLyricVariant}
-                    title="Switch lyric timing version"
-                    className="px-2 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#B45309] dark:text-[#FFD014] hover:bg-[#FFF9DB] dark:hover:bg-[#FFD014]/15 text-[11px] font-semibold cursor-pointer tabular-nums"
+                    onClick={() => onChangeLyricOffset(Math.round((lyricOffset + 0.5) * 10) / 10)}
+                    className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
                   >
-                    v{lyricVariantIdx + 1}/{lyrics.variants.length}
+                    +0.5s
                   </button>
+                </Tip>
+                {lyrics?.variants && lyrics.variants.length > 1 ? (
+                  <Tip label="Switch lyric timing version">
+                    <button
+                      type="button"
+                      onClick={onCycleLyricVariant}
+                      className="px-2 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#B45309] dark:text-[#FFD014] hover:bg-[#FFF9DB] dark:hover:bg-[#FFD014]/15 text-[11px] font-semibold cursor-pointer tabular-nums"
+                    >
+                      v{lyricVariantIdx + 1}/{lyrics.variants.length}
+                    </button>
+                  </Tip>
                 ) : null}
               </div>
             ) : null}
@@ -226,9 +377,11 @@ export function NowPlayingModal({
           {nowPlayingTab === "upnext" ? (
             <div
               key="upnext"
-              className="flex-1 min-h-0 overflow-y-auto pt-3 space-y-1 pr-1 np-tab-enter"
+              className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto pt-3 pb-6 lg:pb-0 space-y-1 pr-1 np-tab-enter"
             >
-              {queue.length === 0 ? (
+              {loadingQueue && queue.length === 0 ? (
+                <MiniTrackSkeletonList />
+              ) : queue.length === 0 ? (
                 <p className="text-sm text-[#9CA3AF] text-center py-16">Queue is empty.</p>
               ) : (
                 queue.map((item, idx) => {
@@ -272,13 +425,15 @@ export function NowPlayingModal({
                       <span className="text-xs text-[#9CA3AF] tabular-nums shrink-0">
                         {item.duration}
                       </span>
-                      <button
-                        onClick={(e) => onOpenMenu(item, e)}
-                        title="More options"
-                        className="p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg cursor-pointer shrink-0"
-                      >
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </button>
+                      <Tip label="More options">
+                        <button
+                          onClick={(e) => onOpenMenu(item, e)}
+                          aria-label="More options"
+                          className="p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg cursor-pointer shrink-0"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                      </Tip>
                     </div>
                   );
                 })
@@ -289,7 +444,7 @@ export function NowPlayingModal({
               key="lyrics"
               ref={lyricsModalBoxRef}
               translate="no"
-              className="notranslate relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-5 space-y-1.5 pr-1 np-tab-enter"
+              className="notranslate relative lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:overflow-x-hidden py-5 pb-8 lg:pb-5 space-y-1.5 pr-1 np-tab-enter"
             >
               {loadingLyrics ? (
                 <div className="space-y-3 py-4 px-3.5 animate-pulse">
@@ -365,21 +520,10 @@ export function NowPlayingModal({
           ) : (
             <div
               key="related"
-              className="flex-1 min-h-0 overflow-y-auto pt-3 space-y-1 pr-1 np-tab-enter"
+              className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto pt-3 pb-6 lg:pb-0 space-y-1 pr-1 np-tab-enter"
             >
               {loadingRelated ? (
-                <div className="space-y-1.5 animate-pulse">
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <div key={i} className="flex items-center gap-3 p-2.5 rounded-2xl">
-                      <div className="w-11 h-11 rounded-xl bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0" />
-                      <div className="flex-1 min-w-0 space-y-2">
-                        <div className="h-3.5 w-3/5 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
-                        <div className="h-3 w-2/5 rounded bg-[#F3F4F6] dark:bg-[#1E222D]" />
-                      </div>
-                      <div className="h-3 w-9 rounded bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0" />
-                    </div>
-                  ))}
-                </div>
+                <MiniTrackSkeletonList />
               ) : relatedTracks.length === 0 ? (
                 <p className="text-sm text-[#9CA3AF] text-center py-16">
                   No related songs found.
@@ -415,13 +559,15 @@ export function NowPlayingModal({
                       <span className="text-xs text-[#9CA3AF] tabular-nums shrink-0">
                         {item.duration}
                       </span>
-                      <button
-                        onClick={(e) => onOpenMenu(item, e)}
-                        title="More options"
-                        className="p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg cursor-pointer shrink-0"
-                      >
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </button>
+                      <Tip label="More options">
+                        <button
+                          onClick={(e) => onOpenMenu(item, e)}
+                          aria-label="More options"
+                          className="p-1.5 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white rounded-lg cursor-pointer shrink-0"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                      </Tip>
                     </div>
                   );
                 })

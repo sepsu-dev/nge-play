@@ -6,6 +6,14 @@ export interface CustomPlaylist {
   tracks: Track[];
 }
 
+export interface TrackMenuState {
+  track: Track;
+  x: number;
+  y: number;
+  customPlaylistId?: string;
+  playlistOnly?: boolean;
+}
+
 export type TabId =
   | "home"
   | "songs"

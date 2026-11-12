@@ -1,6 +1,7 @@
 "use client";
 
 import { Radio, Search, Users, X } from "lucide-react";
+import { Tip } from "@/components/ui/tooltip";
 import type { RoomState } from "@/lib/room";
 
 interface AppHeaderProps {
@@ -59,44 +60,48 @@ export function AppHeader({
           className="w-full h-10 bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EFEFF2] dark:hover:bg-[#1B1F2A] focus:bg-white dark:focus:bg-[#1B1F2A] border border-transparent focus:border-[#FFD014]/70 rounded-full pl-11 pr-9 text-xs sm:text-[13px] text-[#18181B] dark:text-[#F4F5F7] placeholder:text-[#9CA3AF] focus:outline-none transition-all"
         />
         {query && (
-          <button
-            type="button"
-            onClick={onClearSearch}
-            title="Clear search"
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <Tip label="Clear search" side="bottom">
+            <button
+              type="button"
+              onClick={onClearSearch}
+              aria-label="Clear search"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </Tip>
         )}
       </form>
 
       <div className="flex items-center justify-end lg:w-[200px] shrink-0">
-        <button
-          type="button"
-          onClick={onOpenRoom}
-          title={room ? `Room ${room.code}` : "Listen Together"}
-          className={`h-10 px-3.5 rounded-full text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer ${
-            room
-              ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 border border-[#FFD014]/50 text-[#B45309] dark:text-[#FFD014]"
-              : "bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1B1F2A] text-[#4B5563] dark:text-[#D1D5DB]"
-          }`}
-        >
-          {room ? (
-            <>
-              <span className="w-2 h-2 rounded-full bg-[#FFD014] animate-pulse shrink-0" />
-              <span className="tracking-wider">{room.code}</span>
-              <span className="inline-flex items-center gap-1 opacity-80 font-semibold">
-                <Users className="w-3.5 h-3.5" />
-                {room.memberCount}
-              </span>
-            </>
-          ) : (
-            <>
-              <Radio className="w-4 h-4 text-[#FFD014] shrink-0" />
-              <span className="hidden sm:inline">Room</span>
-            </>
-          )}
-        </button>
+        <Tip label={room ? `Room ${room.code}` : "Listen Together"} side="bottom">
+          <button
+            type="button"
+            onClick={onOpenRoom}
+            aria-label={room ? `Room ${room.code}` : "Listen Together"}
+            className={`h-10 px-3.5 rounded-full text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer ${
+              room
+                ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 border border-[#FFD014]/50 text-[#B45309] dark:text-[#FFD014]"
+                : "bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1B1F2A] text-[#4B5563] dark:text-[#D1D5DB]"
+            }`}
+          >
+            {room ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-[#FFD014] animate-pulse shrink-0" />
+                <span className="tracking-wider">{room.code}</span>
+                <span className="inline-flex items-center gap-1 opacity-80 font-semibold">
+                  <Users className="w-3.5 h-3.5" />
+                  {room.memberCount}
+                </span>
+              </>
+            ) : (
+              <>
+                <Radio className="w-4 h-4 text-[#FFD014] shrink-0" />
+                <span className="hidden sm:inline">Room</span>
+              </>
+            )}
+          </button>
+        </Tip>
       </div>
     </header>
   );

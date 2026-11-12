@@ -14,6 +14,7 @@ import type { CustomPlaylist, TabId } from "@/lib/player-state";
 
 interface AppSidebarProps {
   tab: TabId;
+  hydrating?: boolean;
   likedCount: number;
   customPlaylists: CustomPlaylist[];
   activeCustomPlId: string;
@@ -24,6 +25,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({
   tab,
+  hydrating = false,
   likedCount,
   customPlaylists,
   activeCustomPlId,
@@ -83,26 +85,33 @@ export function AppSidebar({
         Playlists
       </p>
       <div className="space-y-1">
-        {customPlaylists.map((pl) => {
-          const active = tab === "playlist" && activeCustomPlId === pl.id;
-          return (
-            <button
-              key={pl.id}
-              onClick={() => onSelectCustomPlaylist(pl.id)}
-              className={`w-full flex items-center justify-between gap-2 px-4 py-2 rounded-full text-[13px] transition-all duration-200 active:scale-[0.98] cursor-pointer ${
-                active
-                  ? "bg-gradient-to-r from-[#FFCE00] to-[#FFD93B] text-[#18181B] font-bold shadow-[0_8px_20px_rgba(255,206,0,0.28)]"
-                  : "text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white hover:bg-[#F7F8FA] dark:hover:bg-[#161922] font-medium"
-              }`}
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <ListMusic className="w-4 h-4 shrink-0" />
-                <span className="truncate">{pl.name}</span>
-              </span>
-              <span className="text-[10px] opacity-60 shrink-0">{pl.tracks.length}</span>
-            </button>
-          );
-        })}
+        {hydrating
+          ? [0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-9 rounded-full bg-[#F7F8FA] dark:bg-[#161922] animate-pulse"
+              />
+            ))
+          : customPlaylists.map((pl) => {
+              const active = tab === "playlist" && activeCustomPlId === pl.id;
+              return (
+                <button
+                  key={pl.id}
+                  onClick={() => onSelectCustomPlaylist(pl.id)}
+                  className={`w-full flex items-center justify-between gap-2 px-4 py-2 rounded-full text-[13px] transition-all duration-200 active:scale-[0.98] cursor-pointer ${
+                    active
+                      ? "bg-gradient-to-r from-[#FFCE00] to-[#FFD93B] text-[#18181B] font-bold shadow-[0_8px_20px_rgba(255,206,0,0.28)]"
+                      : "text-[#4B5563] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white hover:bg-[#F7F8FA] dark:hover:bg-[#161922] font-medium"
+                  }`}
+                >
+                  <span className="flex items-center gap-3 min-w-0">
+                    <ListMusic className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{pl.name}</span>
+                  </span>
+                  <span className="text-[10px] opacity-60 shrink-0">{pl.tracks.length}</span>
+                </button>
+              );
+            })}
 
         <button
           onClick={onOpenNewPlaylist}

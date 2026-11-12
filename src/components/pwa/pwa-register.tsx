@@ -153,6 +153,7 @@ export function PwaRegister() {
           </button>
         </div>
 
+
         {platform === "android" ? (
           <div className="flex justify-end gap-2">
             <button
