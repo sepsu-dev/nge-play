@@ -36,6 +36,7 @@ function createNearSilentWavUrl(): string {
 export function useMediaSession({
   currentTrack,
   isPlaying,
+  playbackSignal = 0,
   onPlay,
   onPause,
   onPrev,
@@ -44,6 +45,7 @@ export function useMediaSession({
 }: {
   currentTrack: Track | undefined;
   isPlaying: boolean;
+  playbackSignal?: number;
   onPlay: () => void;
   onPause: () => void;
   onPrev: () => void;
@@ -89,6 +91,8 @@ export function useMediaSession({
     set("pause", () => handlersRef.current.onPause());
     set("previoustrack", () => handlersRef.current.onPrev());
     set("nexttrack", () => handlersRef.current.onNext());
+    set("seekbackward", null);
+    set("seekforward", null);
     set("seekto", (details) => {
       if (typeof details.seekTime === "number") handlersRef.current.onSeek(details.seekTime);
     });
@@ -163,23 +167,33 @@ export function useMediaSession({
     // Re-claim MediaSession after cross-origin YouTube iframe finishes initializing/buffering
     const t1 = setTimeout(applyMediaSession, 250);
     const t2 = setTimeout(applyMediaSession, 900);
+    const t3 = setTimeout(applyMediaSession, 2000);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
-  }, [currentTrack?.id, isPlaying, applyMediaSession]);
+  }, [currentTrack?.id, isPlaying, playbackSignal, applyMediaSession]);
 
   useEffect(() => {
     return () => {
       if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
       const ms = navigator.mediaSession;
-      (["play", "pause", "previoustrack", "nexttrack", "seekto"] as MediaSessionAction[]).forEach(
-        (a) => {
-          try {
-            ms.setActionHandler(a, null);
-          } catch {}
-        }
-      );
+      (
+        [
+          "play",
+          "pause",
+          "previoustrack",
+          "nexttrack",
+          "seekbackward",
+          "seekforward",
+          "seekto",
+        ] as MediaSessionAction[]
+      ).forEach((a) => {
+        try {
+          ms.setActionHandler(a, null);
+        } catch {}
+      });
     };
   }, []);
 }

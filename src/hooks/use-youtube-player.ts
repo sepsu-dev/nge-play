@@ -34,6 +34,7 @@ interface UseYoutubePlayerParams {
   pendingResumeRef: React.MutableRefObject<PendingResume | null>;
   onAdvanceTrack: (index: number, list: Track[]) => void;
   onTrackEnded?: () => boolean | void;
+  onPlayerPlaying?: () => void;
   onSaveSession: (overrides?: { currentTime?: number; isPlaying?: boolean }, syncFlush?: boolean) => void;
 }
 
@@ -63,6 +64,7 @@ export function useYoutubePlayer({
   pendingResumeRef,
   onAdvanceTrack,
   onTrackEnded,
+  onPlayerPlaying,
   onSaveSession,
 }: UseYoutubePlayerParams) {
   const playerRef = useRef<any>(null);
@@ -82,8 +84,20 @@ export function useYoutubePlayer({
   const optsRef = useRef({ isPlaying, volume, muted, repeat, shuffle });
   optsRef.current = { isPlaying, volume, muted, repeat, shuffle };
 
-  const callbacksRef = useRef({ onAdvanceTrack, onTrackEnded, onSaveSession, setIsPlaying });
-  callbacksRef.current = { onAdvanceTrack, onTrackEnded, onSaveSession, setIsPlaying };
+  const callbacksRef = useRef({
+    onAdvanceTrack,
+    onTrackEnded,
+    onPlayerPlaying,
+    onSaveSession,
+    setIsPlaying,
+  });
+  callbacksRef.current = {
+    onAdvanceTrack,
+    onTrackEnded,
+    onPlayerPlaying,
+    onSaveSession,
+    setIsPlaying,
+  };
 
   const clearBgTimers = useCallback(() => {
     if (bgRetryTimerRef.current) {
@@ -294,6 +308,7 @@ export function useYoutubePlayer({
               bgRetryCountRef.current = 0;
               wantAutoPlayRef.current = true;
               callbacksRef.current.setIsPlaying(true);
+              callbacksRef.current.onPlayerPlaying?.();
               clock.set(e.target.getCurrentTime?.() || 0, e.target.getDuration?.() || 0);
             } else if (e.data === S.PAUSED) {
               if (loadingTargetIdRef.current) return;

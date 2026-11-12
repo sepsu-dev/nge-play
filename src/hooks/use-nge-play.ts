@@ -102,6 +102,7 @@ export function useNgePlay() {
   const [history, setHistory] = useState<Track[]>([]);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSignal, setPlaybackSignal] = useState(0);
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(false);
   const [repeat, setRepeat] = useState(false);
@@ -200,6 +201,7 @@ export function useNgePlay() {
     pendingResumeRef,
     onAdvanceTrack: (idx, list) => playTrackAtRef.current(idx, list),
     onTrackEnded: () => onTrackEndedRef.current(),
+    onPlayerPlaying: () => setPlaybackSignal((n) => n + 1),
     onSaveSession: saveSession,
   });
 
@@ -596,6 +598,7 @@ export function useNgePlay() {
   useMediaSession({
     currentTrack,
     isPlaying,
+    playbackSignal,
     onPlay: handlePlayAction,
     onPause: handlePauseAction,
     onPrev: handlePrev,
