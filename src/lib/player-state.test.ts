@@ -7,6 +7,7 @@ import {
   resolveRestoredIndex,
   resolveTrackSwitch,
   shouldAcceptPlayerEvent,
+  shouldAttemptBackgroundResume,
 } from "@/lib/player-state";
 import { applyRoomCommand, computeRoomTime, createRoomState, makeRoomCode } from "@/lib/room";
 
@@ -123,5 +124,54 @@ for (let i = 0; i < 200; i++) {
 }
 const fallbackCode = makeRoomCode({ has: (c) => c.length === 6 });
 assert.equal(fallbackCode.length > 6, true);
+
+// 9. Background iframe pause recovery guard
+assert.equal(
+  shouldAttemptBackgroundResume({
+    isHidden: true,
+    wasPlaying: true,
+    hiddenAtMs: 1000,
+    manualPauseAtMs: 0,
+    nowMs: 1200,
+    retryCount: 0,
+  }),
+  true
+);
+assert.equal(
+  shouldAttemptBackgroundResume({
+    isHidden: true,
+    wasPlaying: true,
+    hiddenAtMs: 1000,
+    manualPauseAtMs: 1100,
+    nowMs: 1250,
+    retryCount: 0,
+  }),
+  false,
+  "manual pause must not auto-resume"
+);
+assert.equal(
+  shouldAttemptBackgroundResume({
+    isHidden: false,
+    wasPlaying: true,
+    hiddenAtMs: 1000,
+    manualPauseAtMs: 0,
+    nowMs: 1200,
+    retryCount: 0,
+  }),
+  false,
+  "visible tab pause must not auto-resume"
+);
+assert.equal(
+  shouldAttemptBackgroundResume({
+    isHidden: true,
+    wasPlaying: true,
+    hiddenAtMs: 1000,
+    manualPauseAtMs: 0,
+    nowMs: 1800,
+    retryCount: 2,
+  }),
+  false,
+  "retry budget cap prevents infinite loop"
+);
 
 console.log("ALL_PLAYER_STATE_CHECKS_PASSED");

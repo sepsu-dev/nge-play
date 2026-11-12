@@ -235,7 +235,8 @@ export default function NgePlayPage() {
         onLeaveRoom={s.leaveRoom}
       />
 
-      <div className="fixed right-3 bottom-20 opacity-0 pointer-events-none w-[320px] h-[180px]">
+      {/* ponytail: opacity-[0.01] avoids Chromium occlusion throttling without showing video */}
+      <div className="fixed right-3 bottom-20 z-0 opacity-[0.01] pointer-events-none w-[320px] h-[180px]">
         <div id="yt-audio-player" />
       </div>
 

@@ -120,3 +120,25 @@ export function resolveReadyAction(
     autoPlay: pending.autoPlay,
   };
 }
+
+export function shouldAttemptBackgroundResume({
+  isHidden,
+  wasPlaying,
+  hiddenAtMs,
+  manualPauseAtMs,
+  nowMs,
+  retryCount,
+  maxRetries = 2,
+}: {
+  isHidden: boolean;
+  wasPlaying: boolean;
+  hiddenAtMs: number;
+  manualPauseAtMs: number;
+  nowMs: number;
+  retryCount: number;
+  maxRetries?: number;
+}): boolean {
+  if (!isHidden || !wasPlaying || retryCount >= maxRetries) return false;
+  if (manualPauseAtMs > 0 && nowMs - manualPauseAtMs < 1500) return false;
+  return hiddenAtMs > 0 && nowMs - hiddenAtMs < 2500;
+}

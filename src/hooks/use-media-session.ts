@@ -108,11 +108,22 @@ export function useMediaSession({
     (audio as HTMLAudioElement & { playsInline: boolean }).playsInline = true;
     anchorRef.current = audio;
 
+    let verifyTimer: ReturnType<typeof setTimeout> | undefined;
     const onAnchorPlay = () => {
       if (performance.now() < ignoreUntilRef.current) return;
-      if (!stateRef.current.isPlaying) handlersRef.current.onPlay();
+      if (!stateRef.current.isPlaying) {
+        handlersRef.current.onPlay();
+        clearTimeout(verifyTimer);
+        verifyTimer = setTimeout(() => {
+          if (!stateRef.current.isPlaying && !audio.paused) {
+            ignoreUntilRef.current = performance.now() + 150;
+            audio.pause();
+          }
+        }, 1500);
+      }
     };
     const onAnchorPause = () => {
+      clearTimeout(verifyTimer);
       if (performance.now() < ignoreUntilRef.current) return;
       if (stateRef.current.isPlaying) handlersRef.current.onPause();
     };
@@ -120,6 +131,7 @@ export function useMediaSession({
     audio.addEventListener("pause", onAnchorPause);
 
     return () => {
+      clearTimeout(verifyTimer);
       audio.removeEventListener("play", onAnchorPlay);
       audio.removeEventListener("pause", onAnchorPause);
       ignoreUntilRef.current = performance.now() + 200;
