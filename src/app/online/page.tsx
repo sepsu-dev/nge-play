@@ -12,22 +12,17 @@ export default function OnlinePage() {
   const [data, setData] = useState<PresenceData | null>(null);
 
   useEffect(() => {
-    let active = true;
+    const es = new EventSource("/api/presence");
 
-    async function poll() {
+    es.onmessage = (event) => {
       try {
-        const res = await fetch("/api/presence", { cache: "no-store" });
-        if (!res.ok) return;
-        const resData = await res.json();
-        if (active) setData(resData);
+        const resData = JSON.parse(event.data);
+        setData(resData);
       } catch {}
-    }
+    };
 
-    void poll();
-    const timer = setInterval(poll, 4000);
     return () => {
-      active = false;
-      clearInterval(timer);
+      es.close();
     };
   }, []);
 
