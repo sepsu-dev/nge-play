@@ -60,14 +60,14 @@ export default function NgePlayPage() {
   const recentTracks = useMemo((): Track[] => {
     const seen = new Set<string>();
     const merged: Track[] = [];
-    for (const t of [...s.history, ...s.results]) {
+    for (const t of [...s.history, ...s.results, ...s.trending]) {
       if (seen.has(t.id)) continue;
       seen.add(t.id);
       merged.push(t);
       if (merged.length >= 12) break;
     }
     return merged;
-  }, [s.history, s.results]);
+  }, [s.history, s.results, s.trending]);
 
   function handleSelectTab(nextTab: TabId) {
     s.setTab(nextTab);
@@ -272,8 +272,11 @@ export default function NgePlayPage() {
         onUpdateIcon={s.updateMemberIcon}
       />
 
-      {/* ponytail: opacity-[0.02] + 220x200 above footer avoids Chromium occlusion throttling and YouTube minimum-size blocks */}
-      <div className="fixed right-3 bottom-24 z-[1] opacity-[0.02] pointer-events-none w-[220px] h-[200px]">
+      {/* ponytail: offscreen -z-50 opacity-0 + 220x200 keeps YouTube API happy without rendering on screen */}
+      <div
+        className="fixed -bottom-[9999px] -right-[9999px] -z-50 opacity-0 pointer-events-none w-[220px] h-[200px]"
+        aria-hidden="true"
+      >
         <div id="yt-audio-player" />
       </div>
 

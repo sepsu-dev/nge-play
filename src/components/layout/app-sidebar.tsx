@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   Clock,
   Disc3,
@@ -121,16 +120,6 @@ export function AppSidebar({
           <ListPlus className="w-4 h-4 shrink-0" />
           <span>New Playlist</span>
         </button>
-      </div>
-
-      <div className="mt-6 pt-4 border-t border-black/[0.04] dark:border-white/[0.06] flex items-center gap-3 px-3.5 text-xs text-[#9CA3AF]">
-        <Link href="/about" className="hover:text-[#18181B] dark:hover:text-white transition-colors">
-          About
-        </Link>
-        <span>•</span>
-        <Link href="/online" className="hover:text-[#18181B] dark:hover:text-white transition-colors">
-          Live Stats
-        </Link>
       </div>
     </aside>
   );

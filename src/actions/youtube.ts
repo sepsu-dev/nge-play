@@ -1,5 +1,7 @@
 "use server";
 
+import { headers } from "next/headers";
+
 export interface Track {
   id: string;
   title: string;
@@ -46,6 +48,67 @@ export interface ChannelVideosResult {
   continuation?: string;
 }
 
+export interface ClientGeo {
+  gl: string;
+  hl: string;
+  countryName: string;
+  clientIp?: string;
+}
+
+const COUNTRY_NAMES: Record<string, string> = {
+  MY: "Malaysia",
+  ID: "Indonesia",
+  SG: "Singapore",
+  PH: "Philippines",
+  TH: "Thailand",
+  VN: "Vietnam",
+  JP: "Japan",
+  KR: "Korea",
+  US: "United States",
+  GB: "United Kingdom",
+  AU: "Australia",
+  IN: "India",
+  BR: "Brazil",
+};
+
+const LANG_MAP: Record<string, string> = {
+  MY: "ms",
+  ID: "id",
+  JP: "ja",
+  KR: "ko",
+  TH: "th",
+  VN: "vi",
+};
+
+export async function resolveClientGeo(clientHint?: string): Promise<ClientGeo> {
+  let country = (clientHint || "").trim().toUpperCase();
+  let clientIp = "";
+
+  try {
+    const headerList = await headers();
+    const cfCountry = headerList.get("cf-ipcountry");
+    const vercelCountry = headerList.get("x-vercel-ip-country");
+    const xCountry = headerList.get("x-country-code");
+    const detected = cfCountry || vercelCountry || xCountry;
+    if (detected && detected !== "XX" && detected !== "T1" && detected.length === 2) {
+      country = detected.toUpperCase();
+    }
+    const forwarded = headerList.get("x-forwarded-for");
+    const cfIp = headerList.get("cf-connecting-ip");
+    const realIp = headerList.get("x-real-ip");
+    clientIp = cfIp || realIp || (forwarded ? forwarded.split(",")[0].trim() : "");
+  } catch {}
+
+  if (!country || country.length !== 2) {
+    country = "ID";
+  }
+
+  const countryName = COUNTRY_NAMES[country] || country;
+  const hl = LANG_MAP[country] || "en";
+
+  return { gl: country, hl, countryName, clientIp };
+}
+
 const YTM_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -56,22 +119,38 @@ const YTM_HEADERS = {
   Cookie: "SOCS=CAI",
 };
 
-const YTM_CONTEXT = {
-  client: {
-    clientName: "WEB_REMIX",
-    clientVersion: "1.20240501.01.00",
-    hl: "en",
-    gl: "ID",
-  },
-};
-
 // ponytail: direct InnerTube WEB_REMIX POST — add visitorData/clientVersion rotation if rate-limited
-async function ytmPost(endpoint: string, body: Record<string, any>): Promise<any | null> {
+async function ytmPost(
+  endpoint: string,
+  body: Record<string, any>,
+  geo?: Partial<ClientGeo>
+): Promise<any | null> {
   try {
+    const gl = geo?.gl || "ID";
+    const hl = geo?.hl || (gl === "MY" ? "ms" : "en");
+    const reqHeaders: Record<string, string> = {
+      ...YTM_HEADERS,
+      "Accept-Language": hl === "ms" ? "ms,en;q=0.9" : hl === "id" ? "id,en;q=0.9" : "en-US,en;q=0.9",
+    };
+    if (geo?.clientIp) {
+      reqHeaders["X-Forwarded-For"] = geo.clientIp;
+    }
+    reqHeaders["X-YouTube-Client-Country"] = gl;
+
     const res = await fetch(`https://music.youtube.com/youtubei/v1/${endpoint}?prettyPrint=false`, {
       method: "POST",
-      headers: YTM_HEADERS,
-      body: JSON.stringify({ context: YTM_CONTEXT, ...body }),
+      headers: reqHeaders,
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: "WEB_REMIX",
+            clientVersion: "1.20240501.01.00",
+            hl,
+            gl,
+          },
+        },
+        ...body,
+      }),
       cache: "no-store",
     });
     return res.ok ? await res.json() : null;
@@ -432,7 +511,10 @@ interface ExploreCacheEntry {
 const exploreCache = new Map<string, ExploreCacheEntry>();
 const EXPLORE_CACHE_TTL_MS = 3 * 60 * 1000;
 
-export async function fetchYouTubeExplore(playlistId?: string): Promise<{
+export async function fetchYouTubeExplore(
+  playlistId?: string,
+  clientCountry?: string
+): Promise<{
   playlists: YouTubePlaylist[];
   activePlaylistId: string;
   activeTitle: string;
@@ -441,21 +523,22 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
   albums: AlbumSummary[];
   artists: ArtistSummary[];
 }> {
-  const cacheKey = playlistId || "__default__";
+  const geo = await resolveClientGeo(clientCountry);
+  const cacheKey = `${playlistId || "__default__"}:${geo.gl}`;
   const cached = exploreCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
   }
 
   const [homeData, chartsData, exploreData] = await Promise.all([
-    ytmPost("browse", { browseId: "FEmusic_home" }),
-    ytmPost("browse", { browseId: "FEmusic_charts" }),
-    ytmPost("browse", { browseId: "FEmusic_explore" }),
+    ytmPost("browse", { browseId: "FEmusic_home" }, geo),
+    ytmPost("browse", { browseId: "FEmusic_charts" }, geo),
+    ytmPost("browse", { browseId: "FEmusic_explore" }, geo),
   ]);
 
   const playlists: YouTubePlaylist[] = [
     { id: "FEmusic_home", title: "Quick Picks" },
-    { id: "FEmusic_explore", title: "Trending" },
+    { id: "FEmusic_explore", title: `Trending ${geo.countryName}` },
   ];
   const seenPl = new Set(playlists.map((p) => p.id));
   for (const pl of [...parseYtmPlaylists(chartsData, 6), ...parseYtmPlaylists(homeData, 6)]) {
@@ -469,20 +552,47 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
     playlists.find((p) => p.id === playlistId) ||
     (playlistId ? { id: playlistId, title: "YouTube Music" } : playlists[0]);
 
-  let tracks: Track[] = [];
-  if (selected.id === "FEmusic_home" && homeData) {
-    tracks = parseYtmTracks(homeData, 30);
-  } else if (selected.id === "FEmusic_explore" && exploreData) {
-    tracks = parseYtmTracks(exploreData, 30);
+  let rawTrending: Track[] = [];
+  try {
+    const localTrending = await searchYouTube(`Trending ${geo.countryName}`, geo);
+    if (localTrending.length) rawTrending = localTrending.slice(0, 12);
+  } catch {}
+  if (!rawTrending.length) {
+    const chartsTracks = parseYtmTracks(chartsData, 12);
+    rawTrending = chartsTracks.length ? chartsTracks : parseYtmTracks(exploreData, 12);
   }
+
+  let tracks: Track[] = [];
+  if (selected.id === "FEmusic_home") {
+    if (homeData) tracks = parseYtmTracks(homeData, 30);
+    if (tracks.length < 5) {
+      try {
+        const localHits = await searchYouTube(`Top Hits ${geo.countryName}`, geo);
+        if (localHits.length) tracks = localHits.slice(0, 24);
+      } catch {}
+    }
+  } else if (selected.id === "FEmusic_explore") {
+    tracks = rawTrending.length ? rawTrending : (exploreData ? parseYtmTracks(exploreData, 30) : []);
+  }
+
   if (!tracks.length) {
     const browseId = toYtmListBrowseId(selected.id);
-    const data = await ytmPost("browse", { browseId });
+    const data = await ytmPost("browse", { browseId }, geo);
     tracks = parseYtmTracks(data, 40);
   }
 
-  const chartsTracks = parseYtmTracks(chartsData, 12);
-  const rawTrending = chartsTracks.length ? chartsTracks : parseYtmTracks(exploreData, 12);
+  if (!tracks.length) {
+    tracks = rawTrending.length ? rawTrending : parseYtmTracks([homeData, exploreData, chartsData], 30);
+  }
+  if (!tracks.length) {
+    try {
+      const fallbackSearch = await searchYouTube(`Top Hits ${geo.countryName}`, geo);
+      if (fallbackSearch.length) {
+        tracks = fallbackSearch.slice(0, 20);
+      }
+    } catch {}
+  }
+
   const albums = parseYtmAlbums([exploreData, homeData], 16);
   const artists = parseYtmArtists([chartsData, homeData], 16);
 
@@ -584,20 +694,20 @@ export async function fetchRelatedTracks(videoId: string): Promise<Track[]> {
   return hydrateTrackDurations(fallback);
 }
 
-export async function searchYouTube(query: string): Promise<Track[]> {
+export async function searchYouTube(query: string, geo?: Partial<ClientGeo>): Promise<Track[]> {
   const q = (query || "").trim().slice(0, 150);
   if (!q) return [];
 
   const listId = extractPlaylistId(q);
   const directId = extractVideoId(q);
   if (listId && !directId) {
-    const listData = await ytmPost("browse", { browseId: toYtmListBrowseId(listId) });
+    const listData = await ytmPost("browse", { browseId: toYtmListBrowseId(listId) }, geo);
     const items = parseYtmTracks(listData, 40);
     if (items.length) return hydrateTrackDurations(items);
   }
 
   if (directId) {
-    const nxt = await ytmPost("next", { videoId: directId });
+    const nxt = await ytmPost("next", { videoId: directId }, geo);
     let pvr: any = null;
     walkObject(nxt, (o) => {
       if (!pvr && o?.playlistPanelVideoRenderer?.videoId === directId) {
@@ -635,14 +745,14 @@ export async function searchYouTube(query: string): Promise<Track[]> {
   const songsData = await ytmPost("search", {
     query: q,
     params: "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D",
-  });
+  }, geo);
   const tracks = parseYtmTracks(songsData, 24);
 
   if (tracks.length < 6) {
     const videosData = await ytmPost("search", {
       query: q,
       params: "EgWKAQIQAWoKEAMQBBAJEAoQBQ%3D%3D",
-    });
+    }, geo);
     const seen = new Set(tracks.map((t) => t.id));
     for (const v of parseYtmTracks(videosData, 24)) {
       if (seen.has(v.id)) continue;

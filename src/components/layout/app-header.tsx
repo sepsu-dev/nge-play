@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { Info, Radio, Search, Users, X } from "lucide-react";
+import { Radio, Search, Users, X } from "lucide-react";
 import { Tip } from "@/components/ui/tooltip";
 import type { RoomState } from "@/lib/room";
 
@@ -75,17 +74,6 @@ export function AppHeader({
       </form>
 
       <div className="flex items-center justify-end gap-2 lg:w-[200px] shrink-0">
-        <Tip label="About" side="bottom">
-          <Link
-            href="/about"
-            aria-label="About Nge-Plays"
-            className="h-10 w-10 sm:w-auto sm:px-3 rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1B1F2A] text-[#4B5563] dark:text-[#D1D5DB] transition-all active:scale-95"
-          >
-            <Info className="w-4 h-4 text-[#FFD014] shrink-0" />
-            <span className="hidden sm:inline">About</span>
-          </Link>
-        </Tip>
-
         <Tip label={room ? `Room ${room.code}` : "Listen Together"} side="bottom">
           <button
             type="button"

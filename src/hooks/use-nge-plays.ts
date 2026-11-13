@@ -41,6 +41,31 @@ import {
   writeStored,
 } from "@/lib/storage";
 
+function getBrowserCountryHint(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    if (tz.includes("Kuala_Lumpur") || tz.includes("Kuching")) return "MY";
+    if (
+      tz.includes("Jakarta") ||
+      tz.includes("Makassar") ||
+      tz.includes("Jayapura") ||
+      tz.includes("Pontianak")
+    ) {
+      return "ID";
+    }
+    if (tz.includes("Singapore")) return "SG";
+    if (tz.includes("Bangkok")) return "TH";
+    if (tz.includes("Manila")) return "PH";
+    if (tz.includes("Tokyo")) return "JP";
+    if (tz.includes("Seoul")) return "KR";
+    const lang = (navigator.language || "").toUpperCase();
+    if (lang.endsWith("-MY") || lang === "MS") return "MY";
+    if (lang.endsWith("-ID") || lang === "ID") return "ID";
+    if (lang.endsWith("-SG")) return "SG";
+  } catch {}
+  return "";
+}
+
 export function useNgePlay() {
   // Navigation & View
   const [tab, setTab] = useState<TabId>("home");
@@ -485,7 +510,7 @@ export function useNgePlay() {
     initIdentity();
 
     async function boot() {
-      const explorePromise = fetchYouTubeExplore();
+      const explorePromise = fetchYouTubeExplore(undefined, getBrowserCountryHint());
       const uid = "guest";
       userKeyRef.current = uid;
       const [storedLiked, storedHistory, storedPls, idbSession] = await Promise.all([
@@ -589,29 +614,37 @@ export function useNgePlay() {
         });
       }
 
-      const data = await explorePromise;
-      if (cancelled) return;
-      setPlaylists(data.playlists);
-      setActivePlaylistId(data.activePlaylistId);
-      setHeroTitle(data.activeTitle);
-      setResults(data.tracks);
-      setTrending(data.trending);
-      setAlbums(data.albums);
-      setArtists(data.artists);
+      try {
+        const data = await explorePromise;
+        if (cancelled) return;
+        setPlaylists(data.playlists);
+        setActivePlaylistId(data.activePlaylistId);
+        setHeroTitle(data.activeTitle);
+        const resolvedTracks = data.tracks.length ? data.tracks : data.trending;
+        setResults(resolvedTracks);
+        setTrending(data.trending);
+        setAlbums(data.albums);
+        setArtists(data.artists);
 
-      const nextQueue = resolveExploreFallbackQueue(
-        queueRef.current,
-        hasUserPlaybackRef.current || hadSavedQueue,
-        data.tracks
-      );
-      if (nextQueue !== queueRef.current && nextQueue.length > 0) {
-        queueRef.current = nextQueue;
-        currentIndexRef.current = 0;
-        activeTrackIdRef.current = nextQueue[0].id;
-        setQueue(nextQueue);
-        setCurrentIndex(0);
+        const nextQueue = resolveExploreFallbackQueue(
+          queueRef.current,
+          hasUserPlaybackRef.current || hadSavedQueue,
+          resolvedTracks
+        );
+        if (nextQueue !== queueRef.current && nextQueue.length > 0) {
+          queueRef.current = nextQueue;
+          currentIndexRef.current = 0;
+          activeTrackIdRef.current = nextQueue[0].id;
+          setQueue(nextQueue);
+          setCurrentIndex(0);
+        }
+      } catch (err) {
+        console.error("Failed to load explore data:", err);
+      } finally {
+        if (!cancelled) {
+          setSearching(false);
+        }
       }
-      setSearching(false);
     }
 
     void boot();
@@ -859,7 +892,7 @@ export function useNgePlay() {
     setActivePlaylistId(pl.id);
     setHeroTitle(pl.title);
     try {
-      const data = await fetchYouTubeExplore(pl.id);
+      const data = await fetchYouTubeExplore(pl.id, getBrowserCountryHint());
       if (data.tracks.length) setResults(data.tracks);
       else toast.error("Failed to load playlist");
     } finally {
