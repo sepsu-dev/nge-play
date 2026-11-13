@@ -216,13 +216,31 @@ function parseLrc(raw: string): LyricLine[] {
   return lines.sort((a, b) => a.time - b.time);
 }
 
+// ponytail: in-memory cache for track lyrics, capped at 200 items
+const LYRICS_CACHE_MAX = 200;
+const lyricsCache = new Map<string, LyricsResult | null>();
+
 export async function fetchTrackLyrics(
   title: string,
   channel: string,
   durationSec?: number
 ): Promise<LyricsResult | null> {
+  const cacheKey = `${normText(title)}|${normText(channel)}|${durationSec && durationSec > 0 ? Math.round(durationSec) : 0}`;
+  if (lyricsCache.has(cacheKey)) {
+    return lyricsCache.get(cacheKey) ?? null;
+  }
+
+  const saveCache = (res: LyricsResult | null) => {
+    if (lyricsCache.size >= LYRICS_CACHE_MAX) {
+      const oldest = lyricsCache.keys().next().value;
+      if (oldest) lyricsCache.delete(oldest);
+    }
+    lyricsCache.set(cacheKey, res);
+    return res;
+  };
+
   const { artist, track, cleanTitle, fromTitle } = splitArtistTrack(title, channel);
-  if (!track && !cleanTitle) return null;
+  if (!track && !cleanTitle) return saveCache(null);
 
   const targetDur = durationSec && durationSec > 0 ? Math.round(durationSec) : undefined;
   const candidates = new Map<number | string, any>();
@@ -322,7 +340,7 @@ export async function fetchTrackLyrics(
   }
 
   const best = ranked[0];
-  if (!best || best.score < 0) return null;
+  if (!best || best.score < 0) return saveCache(null);
 
   const minVariantScore = Math.max(0, best.score - 60);
   const variants: LyricVariant[] = [];
@@ -350,8 +368,8 @@ export async function fetchTrackLyrics(
     artistName: best.item.artistName,
   };
 
-  return {
+  return saveCache({
     ...primary,
     variants: variants.length > 1 ? variants : undefined,
-  };
+  });
 }

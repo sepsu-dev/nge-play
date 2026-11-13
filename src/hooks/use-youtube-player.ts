@@ -696,7 +696,7 @@ export function useYoutubePlayer({
       const delta = Math.min(2, Math.max(0, (now - lastMs) / 1000));
       lastMs = now;
       accSec += delta;
-      if (accSec >= 1.5) {
+      if (accSec >= 6) {
         accSec = 0;
         callbacksRef.current.onSaveSession({ currentTime: raw, isPlaying: true });
       }

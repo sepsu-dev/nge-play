@@ -13,7 +13,7 @@ import type { LyricsResult } from "@/actions/lyrics";
 import type { ArtistSummary, Track } from "@/actions/youtube";
 import { TrackCover } from "@/components/ui/track-cover";
 import { Tip } from "@/components/ui/tooltip";
-import { usePlaybackClock, type ClockStore } from "@/lib/playback-clock";
+import type { ClockStore } from "@/lib/playback-clock";
 
 interface NowPlayingModalProps {
   open: boolean;
@@ -27,14 +27,12 @@ interface NowPlayingModalProps {
   lyrics: LyricsResult | null;
   loadingLyrics: boolean;
   lyricVariantIdx: number;
-  lyricOffset: number;
   relatedTracks: Track[];
   loadingRelated: boolean;
   clock: ClockStore;
   onClose: () => void;
   onTabChange: (tab: "upnext" | "lyrics" | "related") => void;
   onCycleLyricVariant: () => void;
-  onChangeLyricOffset: (offset: number) => void;
   onOpenArtist: (track: Track | ArtistSummary | string, e?: React.MouseEvent) => void;
   onToggleLike: (track: Track) => void;
   onOpenMenu: (track: Track, e: React.MouseEvent) => void;
@@ -45,6 +43,52 @@ interface NowPlayingModalProps {
 }
 
 const LYRIC_LEAD_SEC = 0.1;
+
+function findActiveLyricIndex(lines: { time: number }[], targetTime: number): number {
+  let low = 0;
+  let high = lines.length - 1;
+  let ans = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (lines[mid].time <= targetTime) {
+      ans = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return ans;
+}
+
+function useActiveLyricIndex(
+  clock: ClockStore,
+  lines: { time: number }[] | undefined,
+  enabled: boolean
+): number {
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+
+  useEffect(() => {
+    if (!enabled || !lines || lines.length === 0) {
+      setActiveIdx(-1);
+      return;
+    }
+
+    const check = () => {
+      const curLines = linesRef.current;
+      if (!curLines || curLines.length === 0) return;
+      const t = clock.getSnapshot().currentTime + LYRIC_LEAD_SEC;
+      const next = findActiveLyricIndex(curLines, t);
+      setActiveIdx((prev) => (prev === next ? prev : next));
+    };
+
+    check();
+    return clock.subscribe(check);
+  }, [clock, enabled, lines]);
+
+  return activeIdx;
+}
 
 function MiniTrackSkeletonList() {
   return (
@@ -75,14 +119,12 @@ export function NowPlayingModal({
   lyrics,
   loadingLyrics,
   lyricVariantIdx,
-  lyricOffset,
   relatedTracks,
   loadingRelated,
   clock,
   onClose,
   onTabChange,
   onCycleLyricVariant,
-  onChangeLyricOffset,
   onOpenArtist,
   onToggleLike,
   onOpenMenu,
@@ -91,7 +133,6 @@ export function NowPlayingModal({
   onPlayTrackNow,
   onSeek,
 }: NowPlayingModalProps) {
-  const { currentTime } = usePlaybackClock(clock);
   const [showMiniHeader, setShowMiniHeader] = useState(false);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const heroRef = useRef<HTMLDivElement | null>(null);
@@ -100,12 +141,11 @@ export function NowPlayingModal({
   const manualPauseUntilRef = useRef(0);
 
   const activeLyrics = lyrics?.variants?.[lyricVariantIdx] || lyrics;
-  const activeLyricIndex = activeLyrics?.synced.length
-    ? activeLyrics.synced.reduce(
-        (acc, line, idx) => (line.time <= currentTime + LYRIC_LEAD_SEC + lyricOffset ? idx : acc),
-        -1
-      )
-    : -1;
+  const activeLyricIndex = useActiveLyricIndex(
+    clock,
+    activeLyrics?.synced,
+    open && nowPlayingTab === "lyrics"
+  );
 
   useEffect(() => {
     setShowMiniHeader(false);
@@ -328,48 +368,17 @@ export function NowPlayingModal({
                 );
               })}
             </div>
-            {nowPlayingTab === "lyrics" && activeLyrics?.synced.length ? (
+            {nowPlayingTab === "lyrics" && lyrics?.variants && lyrics.variants.length > 1 ? (
               <div className="mb-2 flex items-center gap-1 shrink-0">
-                <Tip label="Delay lyrics 0.5s">
+                <Tip label="Switch lyric timing version">
                   <button
                     type="button"
-                    onClick={() => onChangeLyricOffset(Math.round((lyricOffset - 0.5) * 10) / 10)}
-                    className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
+                    onClick={onCycleLyricVariant}
+                    className="px-2 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#B45309] dark:text-[#FFD014] hover:bg-[#FFF9DB] dark:hover:bg-[#FFD014]/15 text-[11px] font-semibold cursor-pointer tabular-nums"
                   >
-                    -0.5s
+                    v{lyricVariantIdx + 1}/{lyrics.variants.length}
                   </button>
                 </Tip>
-                {lyricOffset !== 0 && (
-                  <Tip label="Reset lyric sync offset">
-                    <button
-                      type="button"
-                      onClick={() => onChangeLyricOffset(0)}
-                      className="px-1.5 py-1 rounded-lg bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014] text-[11px] font-semibold cursor-pointer tabular-nums"
-                    >
-                      {lyricOffset > 0 ? `+${lyricOffset.toFixed(1)}s` : `${lyricOffset.toFixed(1)}s`}
-                    </button>
-                  </Tip>
-                )}
-                <Tip label="Advance lyrics 0.5s">
-                  <button
-                    type="button"
-                    onClick={() => onChangeLyricOffset(Math.round((lyricOffset + 0.5) * 10) / 10)}
-                    className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
-                  >
-                    +0.5s
-                  </button>
-                </Tip>
-                {lyrics?.variants && lyrics.variants.length > 1 ? (
-                  <Tip label="Switch lyric timing version">
-                    <button
-                      type="button"
-                      onClick={onCycleLyricVariant}
-                      className="px-2 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#B45309] dark:text-[#FFD014] hover:bg-[#FFF9DB] dark:hover:bg-[#FFD014]/15 text-[11px] font-semibold cursor-pointer tabular-nums"
-                    >
-                      v{lyricVariantIdx + 1}/{lyrics.variants.length}
-                    </button>
-                  </Tip>
-                ) : null}
               </div>
             ) : null}
           </div>
@@ -480,7 +489,7 @@ export function NowPlayingModal({
                       <button
                         key={`modal-${line.time}-${i}`}
                         ref={active ? activeModalLyricRef : null}
-                        onClick={() => onSeek(Math.max(0, line.time - lyricOffset))}
+                        onClick={() => onSeek(line.time)}
                         className={`w-full text-left text-[13px] sm:text-[15px] leading-snug font-semibold px-3 py-1.5 rounded-2xl flex items-center gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
                           active
                             ? "bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#18181B] dark:text-[#FFD014] shadow-[0_6px_20px_rgba(255,208,20,0.16)] dark:shadow-none"

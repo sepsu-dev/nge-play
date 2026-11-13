@@ -53,6 +53,14 @@ interface PlayerFooterProps {
   onToggleLike: (track: Track) => void;
 }
 
+const MOBILE_NAV: { id: TabId; label: string; icon: typeof Home }[] = [
+  { id: "home", label: "Home", icon: Home },
+  { id: "songs", label: "Songs", icon: Headphones },
+  { id: "albums", label: "Albums", icon: Disc3 },
+  { id: "artists", label: "Artists", icon: Users },
+  { id: "library", label: "Library", icon: ListMusic },
+];
+
 export function PlayerFooter({
   tab,
   loading = false,
@@ -84,19 +92,11 @@ export function PlayerFooter({
   const progressPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const volPct = muted ? 0 : volume;
 
-  const mobileNav: { id: TabId; label: string; icon: typeof Home }[] = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "songs", label: "Songs", icon: Headphones },
-    { id: "albums", label: "Albums", icon: Disc3 },
-    { id: "artists", label: "Artists", icon: Users },
-    { id: "library", label: "Library", icon: ListMusic },
-  ];
-
   return (
     <div className="fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-[#0D0F14]/95 backdrop-blur-md shadow-[0_-8px_30px_rgba(15,23,42,0.05)] dark:shadow-[0_-10px_30px_rgba(0,0,0,0.45)]">
       {!nowPlayingOpen && (
         <nav className="lg:hidden flex items-center justify-around border-t border-black/[0.04] dark:border-white/[0.06] bg-[#FAFAFB] dark:bg-[#12151D] px-2 py-1.5">
-          {mobileNav.map((item) => {
+          {MOBILE_NAV.map((item) => {
             const Icon = item.icon;
             const active =
               item.id === "library"
