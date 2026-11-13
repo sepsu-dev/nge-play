@@ -1,5 +1,7 @@
 "use server";
 
+import { headers } from "next/headers";
+
 export interface Track {
   id: string;
   title: string;
@@ -31,6 +33,12 @@ export interface ArtistSummary {
   avatar: string;
 }
 
+export interface SearchResults {
+  tracks: Track[];
+  albums: AlbumSummary[];
+  artists: ArtistSummary[];
+}
+
 export interface ChannelInfo {
   id: string;
   title: string;
@@ -56,22 +64,73 @@ const YTM_HEADERS = {
   Cookie: "SOCS=CAI",
 };
 
-const YTM_CONTEXT = {
-  client: {
-    clientName: "WEB_REMIX",
-    clientVersion: "1.20240501.01.00",
-    hl: "en",
-  },
-};
+async function getVisitorClient(clientHint?: string) {
+  let gl = (clientHint || "").trim().toUpperCase();
+  let hl = "en";
+  let clientIp = "";
+  try {
+    const h = await headers();
+    const detected =
+      h.get("cf-ipcountry") ||
+      h.get("x-vercel-ip-country") ||
+      h.get("x-country-code");
+    if (detected && detected.length === 2 && detected !== "XX" && detected !== "T1") {
+      gl = detected.toUpperCase();
+    }
+    const acceptLang = h.get("accept-language");
+    if (acceptLang) {
+      const primary = acceptLang.split(",")[0]?.split(";")[0]?.trim();
+      if (primary) hl = primary.split("-")[0].toLowerCase();
+      if (!gl || gl.length !== 2) {
+        const langCountry = primary.split("-")[1];
+        if (langCountry && langCountry.length === 2) {
+          gl = langCountry.toUpperCase();
+        }
+      }
+    }
+    const forwarded = h.get("x-forwarded-for");
+    const cfIp = h.get("cf-connecting-ip");
+    const realIp = h.get("x-real-ip");
+    clientIp = cfIp || realIp || (forwarded ? forwarded.split(",")[0].trim() : "");
+  } catch {}
+
+  // Fallback ke US (standar global YouTube Music) jika sama sekali tak terdeteksi
+  if (!gl || gl.length !== 2) {
+    gl = "US";
+  }
+
+  return { gl, hl, clientIp };
+}
 
 // ponytail: direct InnerTube WEB_REMIX POST — add visitorData/clientVersion rotation if rate-limited
-async function ytmPost(endpoint: string, body: Record<string, any>): Promise<any | null> {
+async function ytmPost(
+  endpoint: string,
+  body: Record<string, any>,
+  clientHint?: string
+): Promise<any | null> {
   try {
+    const { gl, hl, clientIp } = await getVisitorClient(clientHint);
+    const reqHeaders: Record<string, string> = {
+      ...YTM_HEADERS,
+      "Accept-Language": hl === "ms" ? "ms,en;q=0.9" : hl === "id" ? "id,en;q=0.9" : "en-US,en;q=0.9",
+    };
+    if (clientIp) {
+      reqHeaders["X-Forwarded-For"] = clientIp;
+    }
+    reqHeaders["X-YouTube-Client-Country"] = gl;
+
     const res = await fetch(`https://music.youtube.com/youtubei/v1/${endpoint}?prettyPrint=false`, {
       method: "POST",
-      headers: YTM_HEADERS,
+      headers: reqHeaders,
       body: JSON.stringify({
-        context: YTM_CONTEXT,
+        context: {
+          client: {
+            clientName: "WEB_REMIX",
+            clientVersion: "1.20240501.01.00",
+            hl,
+            gl,
+          },
+        },
         ...body,
       }),
       cache: "no-store",
@@ -266,6 +325,14 @@ function parseYtmTracks(
   return tracks;
 }
 
+function cleanShortTitle(raw: string): string {
+  let s = (raw || "").trim();
+  s = s.split(/\s*[-–—|•·]\s*/)[0].trim() || s;
+  s = s.replace(/\b(Indonesia|Malaysia|Singapore|Thailand|Philippines|Vietnam|Korea|Japan|United States|UK|Global|Top|Viral|Trending|Hits|202\d)\b/gi, "").trim();
+  s = s.replace(/\s{2,}/g, " ").trim();
+  return s.length >= 2 ? s : raw.trim();
+}
+
 function parseYtmPlaylists(data: any, limit = 8): YouTubePlaylist[] {
   const seen = new Set<string>();
   const list: YouTubePlaylist[] = [];
@@ -276,7 +343,7 @@ function parseYtmPlaylists(data: any, limit = 8): YouTubePlaylist[] {
     const rawTitle = (t?.title?.runs || []).map((r: any) => r.text).join("").trim();
     if (!id || !rawTitle || !id.startsWith("VL") || seen.has(id)) return;
     seen.add(id);
-    const title = rawTitle.split(/\s*[-–—]\s*/)[0].trim() || rawTitle;
+    const title = cleanShortTitle(rawTitle);
     list.push({ id, title });
   });
   return list;
