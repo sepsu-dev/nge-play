@@ -41,31 +41,6 @@ import {
   writeStored,
 } from "@/lib/storage";
 
-function getBrowserCountryHint(): string {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    if (tz.includes("Kuala_Lumpur") || tz.includes("Kuching")) return "MY";
-    if (
-      tz.includes("Jakarta") ||
-      tz.includes("Makassar") ||
-      tz.includes("Jayapura") ||
-      tz.includes("Pontianak")
-    ) {
-      return "ID";
-    }
-    if (tz.includes("Singapore")) return "SG";
-    if (tz.includes("Bangkok")) return "TH";
-    if (tz.includes("Manila")) return "PH";
-    if (tz.includes("Tokyo")) return "JP";
-    if (tz.includes("Seoul")) return "KR";
-    const lang = (navigator.language || "").toUpperCase();
-    if (lang.endsWith("-MY") || lang === "MS") return "MY";
-    if (lang.endsWith("-ID") || lang === "ID") return "ID";
-    if (lang.endsWith("-SG")) return "SG";
-  } catch {}
-  return "";
-}
-
 export function useNgePlay() {
   // Navigation & View
   const [tab, setTab] = useState<TabId>("home");
@@ -510,7 +485,7 @@ export function useNgePlay() {
     initIdentity();
 
     async function boot() {
-      const explorePromise = fetchYouTubeExplore(undefined, getBrowserCountryHint());
+      const explorePromise = fetchYouTubeExplore();
       const uid = "guest";
       userKeyRef.current = uid;
       const [storedLiked, storedHistory, storedPls, idbSession] = await Promise.all([
@@ -892,7 +867,7 @@ export function useNgePlay() {
     setActivePlaylistId(pl.id);
     setHeroTitle(pl.title);
     try {
-      const data = await fetchYouTubeExplore(pl.id, getBrowserCountryHint());
+      const data = await fetchYouTubeExplore(pl.id);
       if (data.tracks.length) setResults(data.tracks);
       else toast.error("Failed to load playlist");
     } finally {
