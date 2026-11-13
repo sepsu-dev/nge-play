@@ -170,6 +170,8 @@ export default function NgePlayPage() {
                 tab={s.tab}
                 searching={listLoading}
                 displayedTracks={displayedTracks}
+                albums={s.albums}
+                artists={s.artists}
                 currentTrack={s.currentTrack}
                 isPlaying={s.isPlaying}
                 liked={s.liked}
@@ -194,7 +196,16 @@ export default function NgePlayPage() {
                 onPlayAll={s.playAll}
                 onPlayTrack={s.playTrackNow}
                 onTogglePlay={s.togglePlay}
+                onOpenAlbum={s.openAlbum}
                 onOpenArtist={s.openChannel}
+                onSeeAllAlbums={() => {
+                  s.setActiveAlbum(null);
+                  s.setTab("albums");
+                }}
+                onSeeAllArtists={() => {
+                  s.setChannelInfo(null);
+                  s.setTab("artists");
+                }}
                 onToggleLike={s.toggleLike}
                 onOpenMenu={s.openTrackMenu}
                 onSelectPlaylist={s.handleSelectPlaylist}

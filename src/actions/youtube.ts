@@ -64,40 +64,140 @@ const YTM_HEADERS = {
   Cookie: "SOCS=CAI",
 };
 
+// ponytail: lightweight timezone/locale/IP country resolution with in-memory IP cache
+const TZ_COUNTRY_MAP: Record<string, string> = {
+  "Asia/Jakarta": "ID", "Asia/Pontianak": "ID", "Asia/Makassar": "ID", "Asia/Jayapura": "ID",
+  "Asia/Kuala_Lumpur": "MY", "Asia/Kuching": "MY", "Asia/Singapore": "SG", "Asia/Bangkok": "TH",
+  "Asia/Ho_Chi_Minh": "VN", "Asia/Saigon": "VN", "Asia/Manila": "PH", "Asia/Tokyo": "JP",
+  "Asia/Seoul": "KR", "Asia/Taipei": "TW", "Asia/Hong_Kong": "HK", "Asia/Shanghai": "CN",
+  "Asia/Kolkata": "IN", "Asia/Calcutta": "IN", "Asia/Dubai": "AE", "Asia/Riyadh": "SA",
+  "Australia/Sydney": "AU", "Australia/Melbourne": "AU", "Australia/Perth": "AU", "Pacific/Auckland": "NZ",
+  "Europe/London": "GB", "Europe/Paris": "FR", "Europe/Berlin": "DE", "Europe/Madrid": "ES",
+  "Europe/Rome": "IT", "Europe/Amsterdam": "NL", "Europe/Moscow": "RU", "Europe/Istanbul": "TR",
+  "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US", "America/Los_Angeles": "US",
+  "America/Toronto": "CA", "America/Vancouver": "CA", "America/Sao_Paulo": "BR", "America/Mexico_City": "MX",
+};
+
+const LANG_COUNTRY_MAP: Record<string, string> = {
+  id: "ID", ms: "MY", ja: "JP", ko: "KR", vi: "VN", th: "TH", tl: "PH", fil: "PH",
+  hi: "IN", ru: "RU", tr: "TR", pt: "BR", de: "DE", fr: "FR", it: "IT", nl: "NL",
+};
+
+const ipCountryCache = new Map<string, { gl: string; expiresAt: number }>();
+
+function parseHintCountry(hint?: string): { gl?: string; hl?: string } {
+  if (!hint) return {};
+  let gl: string | undefined;
+  let hl: string | undefined;
+  for (const raw of hint.split("|")) {
+    const part = raw.trim();
+    if (!part) continue;
+    if (/^[A-Za-z]{2}$/.test(part)) gl = part.toUpperCase();
+    else if (TZ_COUNTRY_MAP[part]) gl = gl || TZ_COUNTRY_MAP[part];
+    else if (/^[a-zA-Z]{2,3}-[a-zA-Z]{2}$/.test(part)) {
+      const [l, c] = part.split("-");
+      hl = hl || l.toLowerCase();
+      gl = gl || c.toUpperCase();
+    } else if (/^[a-zA-Z]{2,3}$/.test(part)) {
+      const l = part.toLowerCase();
+      hl = hl || l;
+      gl = gl || LANG_COUNTRY_MAP[l];
+    }
+  }
+  return { gl, hl };
+}
+
+async function lookupIpCountry(clientIp: string): Promise<string | undefined> {
+  const key = clientIp || "__self__";
+  const cached = ipCountryCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.gl;
+  try {
+    const isPrivate =
+      !clientIp ||
+      clientIp === "127.0.0.1" ||
+      clientIp === "::1" ||
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(clientIp);
+    const url = isPrivate ? "https://api.country.is" : `https://api.country.is/${encodeURIComponent(clientIp)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 700);
+    const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+    clearTimeout(timer);
+    if (res.ok) {
+      const json = await res.json();
+      const country = typeof json?.country === "string" ? json.country.trim().toUpperCase() : "";
+      if (/^[A-Z]{2}$/.test(country) && country !== "XX" && country !== "T1") {
+        ipCountryCache.set(key, { gl: country, expiresAt: Date.now() + 30 * 60 * 1000 });
+        return country;
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
 async function getVisitorClient(clientHint?: string) {
-  let gl = (clientHint || "").trim().toUpperCase();
-  let hl = "en";
+  const hinted = parseHintCountry(clientHint);
+  let gl = hinted.gl || "";
+  let hl = hinted.hl || "en";
   let clientIp = "";
+  let headerCountry = "";
+
   try {
     const h = await headers();
     const detected =
       h.get("cf-ipcountry") ||
       h.get("x-vercel-ip-country") ||
-      h.get("x-country-code");
-    if (detected && detected.length === 2 && detected !== "XX" && detected !== "T1") {
-      gl = detected.toUpperCase();
+      h.get("cloudfront-viewer-country") ||
+      h.get("x-appengine-country") ||
+      h.get("x-nf-country-code") ||
+      h.get("x-country-code") ||
+      h.get("x-geo-country");
+    if (detected && /^[A-Za-z]{2}$/.test(detected.trim())) {
+      const code = detected.trim().toUpperCase();
+      if (code !== "XX" && code !== "T1") headerCountry = code;
     }
+
     const acceptLang = h.get("accept-language");
     if (acceptLang) {
-      const primary = acceptLang.split(",")[0]?.split(";")[0]?.trim();
-      if (primary) hl = primary.split("-")[0].toLowerCase();
-      if (!gl || gl.length !== 2) {
-        const langCountry = primary.split("-")[1];
-        if (langCountry && langCountry.length === 2) {
-          gl = langCountry.toUpperCase();
+      const tags = acceptLang.split(",").map((t) => t.split(";")[0]?.trim()).filter(Boolean);
+      const primary = tags[0];
+      if (primary) hl = primary.split("-")[0]?.toLowerCase() || hl;
+      if (!gl) {
+        for (const tag of tags) {
+          const [langPart, regionPart] = tag.split("-");
+          if (regionPart && /^[A-Za-z]{2}$/.test(regionPart)) {
+            const code = regionPart.toUpperCase();
+            if (code !== "US" || tags.length === 1) {
+              gl = code;
+              break;
+            }
+          }
+          const mapped = LANG_COUNTRY_MAP[(langPart || "").toLowerCase()];
+          if (mapped) {
+            gl = mapped;
+            break;
+          }
+        }
+        if (!gl && primary) {
+          const regionPart = primary.split("-")[1];
+          if (regionPart && /^[A-Za-z]{2}$/.test(regionPart)) gl = regionPart.toUpperCase();
         }
       }
     }
+
     const forwarded = h.get("x-forwarded-for");
     const cfIp = h.get("cf-connecting-ip");
     const realIp = h.get("x-real-ip");
     clientIp = cfIp || realIp || (forwarded ? forwarded.split(",")[0].trim() : "");
   } catch {}
 
-  // Fallback ke US (standar global YouTube Music) jika sama sekali tak terdeteksi
-  if (!gl || gl.length !== 2) {
-    gl = "US";
+  if (headerCountry) {
+    gl = headerCountry;
+  } else {
+    const ipGl = await lookupIpCountry(clientIp);
+    if (ipGl) gl = ipGl;
   }
+
+  if (!gl || gl.length !== 2) gl = "US";
 
   return { gl, hl, clientIp };
 }
@@ -112,7 +212,7 @@ async function ytmPost(
     const { gl, hl, clientIp } = await getVisitorClient(clientHint);
     const reqHeaders: Record<string, string> = {
       ...YTM_HEADERS,
-      "Accept-Language": hl === "ms" ? "ms,en;q=0.9" : hl === "id" ? "id,en;q=0.9" : "en-US,en;q=0.9",
+      "Accept-Language": `${hl}-${gl},${hl};q=0.9,en;q=0.8`,
     };
     if (clientIp) {
       reqHeaders["X-Forwarded-For"] = clientIp;
@@ -401,34 +501,74 @@ export async function hydrateTrackDurations<T extends Track>(tracks: T[]): Promi
 function parseYtmAlbums(dataList: any[], limit = 16): AlbumSummary[] {
   const seen = new Set<string>();
   const albums: AlbumSummary[] = [];
+  const push = (id: string, title: string, subRuns: any[], rawThumb: string) => {
+    if (!id || !title || !rawThumb || seen.has(id) || albums.length >= limit) return;
+    seen.add(id);
+    const subtitle = subRuns.map((r: any) => r.text).join("").trim();
+    const meta = extractRunsMeta(subRuns);
+    albums.push({
+      id,
+      title,
+      subtitle: subtitle || meta.channel,
+      artist: meta.channel,
+      channelId: meta.channelId,
+      thumbnail: rawThumb.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1"),
+    });
+  };
   for (const data of dataList) {
     walkObject(data, (o) => {
       if (albums.length >= limit) return;
       const t = o?.musicTwoRowItemRenderer;
-      if (!t) return;
-      const browse = t.navigationEndpoint?.browseEndpoint;
-      const id = browse?.browseId || "";
-      const pageType =
-        browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
-      if (!id || (!id.startsWith("MPRE") && pageType !== "MUSIC_PAGE_TYPE_ALBUM") || seen.has(id)) {
-        return;
+      if (t) {
+        const browse = t.navigationEndpoint?.browseEndpoint;
+        const id = browse?.browseId || "";
+        const pageType =
+          browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+        if (id && (id.startsWith("MPRE") || pageType === "MUSIC_PAGE_TYPE_ALBUM")) {
+          push(
+            id,
+            (t.title?.runs || []).map((r: any) => r.text).join("").trim(),
+            t.subtitle?.runs || [],
+            t.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || ""
+          );
+        }
       }
-      seen.add(id);
-      const title = (t.title?.runs || []).map((r: any) => r.text).join("").trim();
-      const subRuns = t.subtitle?.runs || [];
-      const subtitle = subRuns.map((r: any) => r.text).join("").trim();
-      const meta = extractRunsMeta(subRuns);
-      const rawThumb =
-        t.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || "";
-      if (!title || !rawThumb) return;
-      albums.push({
-        id,
-        title,
-        subtitle: subtitle || meta.channel,
-        artist: meta.channel,
-        channelId: meta.channelId,
-        thumbnail: rawThumb.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1"),
-      });
+      const m = o?.musicResponsiveListItemRenderer;
+      if (m) {
+        const browse = m.navigationEndpoint?.browseEndpoint;
+        const id = browse?.browseId || "";
+        const pageType =
+          browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+        if (id && (id.startsWith("MPRE") || pageType === "MUSIC_PAGE_TYPE_ALBUM")) {
+          const cols = m.flexColumns || [];
+          const titleRuns = cols[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+          const subRuns = [
+            ...(cols[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []),
+            ...(cols[2]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []),
+          ];
+          push(
+            id,
+            titleRuns.map((r: any) => r.text).join("").trim(),
+            subRuns,
+            m.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || ""
+          );
+        }
+      }
+      const c = o?.musicCardShelfRenderer;
+      if (c) {
+        const browse = c.title?.runs?.[0]?.navigationEndpoint?.browseEndpoint;
+        const id = browse?.browseId || "";
+        const pageType =
+          browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+        if (id && (id.startsWith("MPRE") || pageType === "MUSIC_PAGE_TYPE_ALBUM")) {
+          push(
+            id,
+            (c.title?.runs || []).map((r: any) => r.text).join("").trim(),
+            c.subtitle?.runs || [],
+            c.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || ""
+          );
+        }
+      }
     });
   }
   return albums;
@@ -481,6 +621,20 @@ function parseYtmArtists(dataList: any[], limit = 16): ArtistSummary[] {
           );
         }
       }
+      const c = o?.musicCardShelfRenderer;
+      if (c) {
+        const b = c.title?.runs?.[0]?.navigationEndpoint?.browseEndpoint;
+        const id = b?.browseId || "";
+        const pt = b?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+        if (id.startsWith("UC") || pt === "MUSIC_PAGE_TYPE_ARTIST") {
+          push(
+            id,
+            (c.title?.runs || []).map((r: any) => r.text).join("").trim(),
+            (c.subtitle?.runs || []).map((r: any) => r.text).join("").trim(),
+            c.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || ""
+          );
+        }
+      }
     });
   }
   return artists;
@@ -503,7 +657,8 @@ const exploreCache = new Map<string, ExploreCacheEntry>();
 const EXPLORE_CACHE_TTL_MS = 3 * 60 * 1000;
 
 export async function fetchYouTubeExplore(
-  playlistId?: string
+  playlistId?: string,
+  clientHint?: string
 ): Promise<{
   playlists: YouTubePlaylist[];
   activePlaylistId: string;
@@ -513,16 +668,17 @@ export async function fetchYouTubeExplore(
   albums: AlbumSummary[];
   artists: ArtistSummary[];
 }> {
-  const cacheKey = playlistId || "__default__";
+  const { gl } = await getVisitorClient(clientHint);
+  const cacheKey = `${gl}:${playlistId || "__default__"}`;
   const cached = exploreCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
   }
 
   const [homeData, chartsData, exploreData] = await Promise.all([
-    ytmPost("browse", { browseId: "FEmusic_home" }),
-    ytmPost("browse", { browseId: "FEmusic_charts" }),
-    ytmPost("browse", { browseId: "FEmusic_explore" }),
+    ytmPost("browse", { browseId: "FEmusic_home" }, clientHint),
+    ytmPost("browse", { browseId: "FEmusic_charts" }, clientHint),
+    ytmPost("browse", { browseId: "FEmusic_explore" }, clientHint),
   ]);
 
   const playlists: YouTubePlaylist[] = [
@@ -545,7 +701,7 @@ export async function fetchYouTubeExplore(
   let rawTrending = chartsTracks.length ? chartsTracks : parseYtmTracks(exploreData, 12);
   if (!rawTrending.length) {
     try {
-      const searchTrending = await searchYouTube("Trending");
+      const searchTrending = await searchYouTube("Trending", clientHint);
       if (searchTrending.length) rawTrending = searchTrending.slice(0, 12);
     } catch {}
   }
@@ -555,7 +711,7 @@ export async function fetchYouTubeExplore(
     if (homeData) tracks = parseYtmTracks(homeData, 30);
     if (tracks.length < 5) {
       try {
-        const topHits = await searchYouTube("Top Hits");
+        const topHits = await searchYouTube("Top Hits", clientHint);
         if (topHits.length) tracks = topHits.slice(0, 24);
       } catch {}
     }
@@ -565,7 +721,7 @@ export async function fetchYouTubeExplore(
 
   if (!tracks.length) {
     const browseId = toYtmListBrowseId(selected.id);
-    const data = await ytmPost("browse", { browseId });
+    const data = await ytmPost("browse", { browseId }, clientHint);
     tracks = parseYtmTracks(data, 40);
   }
 
@@ -574,7 +730,7 @@ export async function fetchYouTubeExplore(
   }
   if (!tracks.length) {
     try {
-      const fallbackSearch = await searchYouTube("Top Hits");
+      const fallbackSearch = await searchYouTube("Top Hits", clientHint);
       if (fallbackSearch.length) {
         tracks = fallbackSearch.slice(0, 20);
       }
@@ -682,20 +838,30 @@ export async function fetchRelatedTracks(videoId: string): Promise<Track[]> {
   return hydrateTrackDurations(fallback);
 }
 
-export async function searchYouTube(query: string): Promise<Track[]> {
+export async function searchYouTube(query: string, clientHint?: string): Promise<Track[]> {
+  const res = await searchYouTubeMusic(query, clientHint);
+  return res.tracks;
+}
+
+export async function searchYouTubeMusic(
+  query: string,
+  clientHint?: string
+): Promise<SearchResults> {
   const q = (query || "").trim().slice(0, 150);
-  if (!q) return [];
+  if (!q) return { tracks: [], albums: [], artists: [] };
 
   const listId = extractPlaylistId(q);
   const directId = extractVideoId(q);
   if (listId && !directId) {
-    const listData = await ytmPost("browse", { browseId: toYtmListBrowseId(listId) });
+    const listData = await ytmPost("browse", { browseId: toYtmListBrowseId(listId) }, clientHint);
     const items = parseYtmTracks(listData, 40);
-    if (items.length) return hydrateTrackDurations(items);
+    if (items.length) {
+      return { tracks: await hydrateTrackDurations(items), albums: [], artists: [] };
+    }
   }
 
   if (directId) {
-    const nxt = await ytmPost("next", { videoId: directId });
+    const nxt = await ytmPost("next", { videoId: directId }, clientHint);
     let pvr: any = null;
     walkObject(nxt, (o) => {
       if (!pvr && o?.playlistPanelVideoRenderer?.videoId === directId) {
@@ -704,44 +870,74 @@ export async function searchYouTube(query: string): Promise<Track[]> {
     });
     if (pvr) {
       const meta = extractRunsMeta(pvr.longBylineText?.runs || pvr.shortBylineText?.runs || []);
-      return [
+      return {
+        tracks: [
+          {
+            id: directId,
+            title:
+              (pvr.title?.runs || []).map((r: any) => r.text).join("").trim() ||
+              `YouTube Music (${directId})`,
+            channel: meta.channel,
+            channelId: meta.channelId || findBrowseId(pvr),
+            duration: normalizeDuration(pvr.lengthText?.runs?.[0]?.text || pvr.lengthText?.simpleText),
+            thumbnail:
+              pvr.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
+              `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+          },
+        ],
+        albums: [],
+        artists: [],
+      };
+    }
+    return {
+      tracks: [
         {
           id: directId,
-          title:
-            (pvr.title?.runs || []).map((r: any) => r.text).join("").trim() ||
-            `YouTube Music (${directId})`,
-          channel: meta.channel,
-          channelId: meta.channelId || findBrowseId(pvr),
-          duration: normalizeDuration(pvr.lengthText?.runs?.[0]?.text || pvr.lengthText?.simpleText),
-          thumbnail:
-            pvr.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
-            `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+          title: `YouTube Music (${directId})`,
+          channel: "YouTube Music",
+          duration: "—",
+          thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
         },
-      ];
-    }
-    return [
-      {
-        id: directId,
-        title: `YouTube Music (${directId})`,
-        channel: "YouTube Music",
-        duration: "—",
-        thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
-      },
-    ];
+      ],
+      albums: [],
+      artists: [],
+    };
   }
 
-  const songsData = await ytmPost("search", {
-    query: q,
-    params: "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D",
-  });
+  const [songsData, albumsData, artistsData, generalData] = await Promise.all([
+    ytmPost(
+      "search",
+      { query: q, params: "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D" },
+      clientHint
+    ),
+    ytmPost(
+      "search",
+      { query: q, params: "EgWKAQIYAWoKEAMQBBAJEAoQBQ%3D%3D" },
+      clientHint
+    ),
+    ytmPost(
+      "search",
+      { query: q, params: "EgWKAQIgAWoKEAMQBBAJEAoQBQ%3D%3D" },
+      clientHint
+    ),
+    ytmPost("search", { query: q }, clientHint),
+  ]);
+
   const tracks = parseYtmTracks(songsData, 24);
+  const seen = new Set(tracks.map((t) => t.id));
+  for (const t of parseYtmTracks(generalData, 24)) {
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    tracks.push(t);
+    if (tracks.length >= 24) break;
+  }
 
   if (tracks.length < 6) {
-    const videosData = await ytmPost("search", {
-      query: q,
-      params: "EgWKAQIQAWoKEAMQBBAJEAoQBQ%3D%3D",
-    });
-    const seen = new Set(tracks.map((t) => t.id));
+    const videosData = await ytmPost(
+      "search",
+      { query: q, params: "EgWKAQIQAWoKEAMQBBAJEAoQBQ%3D%3D" },
+      clientHint
+    );
     for (const v of parseYtmTracks(videosData, 24)) {
       if (seen.has(v.id)) continue;
       seen.add(v.id);
@@ -750,7 +946,14 @@ export async function searchYouTube(query: string): Promise<Track[]> {
     }
   }
 
-  return hydrateTrackDurations(tracks);
+  const albums = parseYtmAlbums([albumsData, generalData], 16);
+  const artists = parseYtmArtists([artistsData, generalData], 16);
+
+  return {
+    tracks: await hydrateTrackDurations(tracks),
+    albums,
+    artists,
+  };
 }
 
 export async function resolveChannelFromVideo(videoId: string): Promise<string | null> {

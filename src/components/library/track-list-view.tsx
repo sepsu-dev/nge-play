@@ -17,6 +17,8 @@ interface TrackListViewProps {
   tab: TabId;
   searching: boolean;
   displayedTracks: Track[];
+  albums?: AlbumSummary[];
+  artists?: ArtistSummary[];
   currentTrack: Track | undefined;
   isPlaying: boolean;
   liked: Track[];
@@ -33,7 +35,10 @@ interface TrackListViewProps {
   onPlayAll: (tracks: Track[]) => void;
   onPlayTrack: (track: Track, list: Track[]) => void;
   onTogglePlay: () => void;
+  onOpenAlbum?: (album: AlbumSummary) => void;
   onOpenArtist: (target: Track | ArtistSummary | string, e?: React.MouseEvent) => void;
+  onSeeAllAlbums?: () => void;
+  onSeeAllArtists?: () => void;
   onToggleLike: (track: Track, e?: React.MouseEvent) => void;
   onOpenMenu: (track: Track, e: React.MouseEvent, customPlaylistId?: string) => void;
   onSelectPlaylist: (pl: YouTubePlaylist) => void;
@@ -68,6 +73,8 @@ export function TrackListView({
   tab,
   searching,
   displayedTracks,
+  albums = [],
+  artists = [],
   currentTrack,
   isPlaying,
   liked,
@@ -84,7 +91,10 @@ export function TrackListView({
   onPlayAll,
   onPlayTrack,
   onTogglePlay,
+  onOpenAlbum,
   onOpenArtist,
+  onSeeAllAlbums,
+  onSeeAllArtists,
   onToggleLike,
   onOpenMenu,
   onSelectPlaylist,
@@ -93,6 +103,7 @@ export function TrackListView({
   onClearHistory,
   onLoadMoreChannel,
 }: TrackListViewProps) {
+  const isSearchMode = tab === "songs" && !activePlaylistId;
   const totalSec = displayedTracks.reduce((acc, t) => acc + parseDurationSec(t.duration), 0);
   const heroCover =
     (tab === "artists" && channelInfo?.avatar) ||
@@ -263,6 +274,85 @@ export function TrackListView({
                 );
               })}
         </div>
+      )}
+
+      {isSearchMode && !searching && artists.length > 0 && (
+        <div className="mb-6 space-y-3 shrink-0">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-[#18181B] dark:text-white">Artists</h2>
+            {artists.length > 4 && onSeeAllArtists && (
+              <button
+                onClick={onSeeAllArtists}
+                className="text-xs font-semibold text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors cursor-pointer"
+              >
+                See all
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {artists.slice(0, 4).map((art) => (
+              <div
+                key={art.id}
+                onClick={(e) => onOpenArtist(art, e)}
+                className="flex items-center gap-3 p-2.5 rounded-2xl bg-[#F7F8FA] dark:bg-[#161922] hover:bg-[#F1F3F6] dark:hover:bg-[#1B1F2A] border border-transparent dark:border-white/[0.05] transition-all cursor-pointer"
+              >
+                <div className="w-11 h-11 rounded-full overflow-hidden bg-white dark:bg-[#1E222D] shrink-0 border border-black/[0.04] dark:border-white/[0.08]">
+                  <TrackCover src={art.avatar} alt={art.name} iconClass="w-4 h-4" lazy />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-bold text-[#18181B] dark:text-[#F4F5F7] truncate">
+                    {art.name}
+                  </p>
+                  <p className="text-xs text-[#9CA3AF] truncate">
+                    {art.subscribers || "Artist"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isSearchMode && !searching && albums.length > 0 && (
+        <div className="mb-6 space-y-3 shrink-0">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-[#18181B] dark:text-white">Albums</h2>
+            {albums.length > 4 && onSeeAllAlbums && (
+              <button
+                onClick={onSeeAllAlbums}
+                className="text-xs font-semibold text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors cursor-pointer"
+              >
+                See all
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {albums.slice(0, 4).map((alb) => (
+              <div
+                key={alb.id}
+                onClick={() => onOpenAlbum?.(alb)}
+                className="group cursor-pointer min-w-0 transition-transform duration-150 active:scale-[0.98]"
+              >
+                <div className="relative aspect-square rounded-2xl overflow-hidden bg-[#F3F4F6] dark:bg-[#161922] dark:ring-1 dark:ring-white/[0.06]">
+                  <TrackCover src={alb.thumbnail} alt={alb.title} iconClass="w-6 h-6" lazy />
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="w-9 h-9 rounded-full bg-[#FFD014] text-[#18181B] flex items-center justify-center shadow-md">
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[13px] font-bold text-[#18181B] dark:text-[#F4F5F7] truncate mt-2">
+                  {alb.title}
+                </p>
+                <p className="text-xs text-[#9CA3AF] truncate">{alb.subtitle}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isSearchMode && !searching && (artists.length > 0 || albums.length > 0) && (
+        <h2 className="text-sm font-bold text-[#18181B] dark:text-white mb-2 shrink-0">Songs</h2>
       )}
 
       <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_80px_52px_64px] gap-3 px-3 py-2 text-[11px] font-semibold text-[#9CA3AF] dark:text-[#6B7280] border-b border-[#F3F4F6] dark:border-white/[0.06] shrink-0">

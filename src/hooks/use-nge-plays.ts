@@ -10,7 +10,7 @@ import {
   fetchYouTubeExplore,
   hydrateTrackDurations,
   resolveChannelFromVideo,
-  searchYouTube,
+  searchYouTubeMusic,
   type AlbumSummary,
   type ArtistSummary,
   type ChannelInfo,
@@ -439,8 +439,18 @@ export function useNgePlay() {
     requestPersistentStorage();
     initIdentity();
 
+    const clientHint = (() => {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        const langs = (navigator.languages || [navigator.language]).filter(Boolean).join("|");
+        return [tz, langs].filter(Boolean).join("|");
+      } catch {
+        return "";
+      }
+    })();
+
     async function boot() {
-      const explorePromise = fetchYouTubeExplore();
+      const explorePromise = fetchYouTubeExplore(undefined, clientHint);
       const uid = "guest";
       userKeyRef.current = uid;
       const [storedLiked, storedHistory, storedPls, idbSession] = await Promise.all([
@@ -821,10 +831,21 @@ export function useNgePlay() {
     setTab("songs");
     setActivePlaylistId(pl.id);
     setHeroTitle(pl.title);
+    const clientHint = (() => {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        const langs = (navigator.languages || [navigator.language]).filter(Boolean).join("|");
+        return [tz, langs].filter(Boolean).join("|");
+      } catch {
+        return "";
+      }
+    })();
     try {
-      const data = await fetchYouTubeExplore(pl.id);
+      const data = await fetchYouTubeExplore(pl.id, clientHint);
       if (data.tracks.length) setResults(data.tracks);
       else toast.error("Failed to load playlist");
+      if (data.albums.length) setAlbums(data.albums);
+      if (data.artists.length) setArtists(data.artists);
     } finally {
       setSearching(false);
     }
@@ -844,10 +865,24 @@ export function useNgePlay() {
     setTab("songs");
     setActivePlaylistId("");
     setHeroTitle(`Results: ${q}`);
+    const clientHint = (() => {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        const langs = (navigator.languages || [navigator.language]).filter(Boolean).join("|");
+        return [tz, langs].filter(Boolean).join("|");
+      } catch {
+        return "";
+      }
+    })();
     try {
-      const items = await searchYouTube(q);
-      if (!items.length) toast.error("No tracks found");
-      else setResults(items);
+      const res = await searchYouTubeMusic(q, clientHint);
+      if (!res.tracks.length && !res.albums.length && !res.artists.length) {
+        toast.error("No results found");
+      } else {
+        setResults(res.tracks);
+        setAlbums(res.albums);
+        setArtists(res.artists);
+      }
     } finally {
       setSearching(false);
     }
