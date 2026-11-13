@@ -35,6 +35,7 @@ interface RoomRecord {
 const ROOM_PENDING_TTL_MS = 15_000;
 const ROOM_IDLE_TTL_MS = 6 * 3600_000;
 const MAX_USED_CODES = 50_000;
+const MAX_ACTIVE_ROOMS = 1_000;
 
 const g = globalThis as typeof globalThis & {
   __ngePlayRooms?: Map<string, RoomRecord>;
@@ -181,11 +182,16 @@ export async function POST(req: NextRequest) {
   const clientId = String(body?.clientId || "anon").slice(0, 64);
 
   if (body?.type === "create") {
+    if (rooms.size >= MAX_ACTIVE_ROOMS) {
+      return NextResponse.json({ error: "Room limit reached" }, { status: 429 });
+    }
     const code = makeRoomCode({
       has: (c) => rooms.has(c) || usedCodes.has(c),
     });
     rememberUsedCode(code);
-    const queue = Array.isArray(body.queue) ? (body.queue as Track[]) : [];
+    const queue = Array.isArray(body.queue)
+      ? (body.queue.filter((t: any) => t && typeof t.id === "string" && t.id.length < 64).slice(0, 60) as Track[])
+      : [];
     const clientName = sanitizeMemberName(String(body?.name || "")) || generateMemberName();
     const clientIcon = parseMemberIcon(body?.icon) || generateMemberIcon();
     const state = createRoomState({

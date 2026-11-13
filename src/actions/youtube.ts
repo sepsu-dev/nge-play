@@ -279,35 +279,51 @@ function parseYtmPlaylists(data: any, limit = 8): YouTubePlaylist[] {
   return list;
 }
 
-export async function hydrateTrackDurations<T extends Track>(tracks: T[]): Promise<T[]> {
-  const missingIds = [
-    ...new Set(tracks.filter((t) => t.id && (!t.duration || t.duration === "—")).map((t) => t.id)),
-  ];
-  if (!missingIds.length) return tracks;
+// ponytail: in-memory cache for track durations, capped at 1500 items
+const DURATION_CACHE_MAX = 1500;
+const durationCache = new Map<string, string>();
 
-  const durMap = new Map<string, string>();
-  const chunks: string[][] = [];
-  for (let i = 0; i < missingIds.length; i += 40) {
-    chunks.push(missingIds.slice(i, i + 40));
+export async function hydrateTrackDurations<T extends Track>(tracks: T[]): Promise<T[]> {
+  const missingTracks = tracks.filter((t) => t.id && (!t.duration || t.duration === "—"));
+  if (!missingTracks.length) return tracks;
+
+  const missingIds = [
+    ...new Set(
+      missingTracks
+        .map((t) => t.id)
+        .filter((id) => !durationCache.has(id))
+    ),
+  ];
+
+  if (missingIds.length > 0) {
+    const chunks: string[][] = [];
+    for (let i = 0; i < missingIds.length; i += 40) {
+      chunks.push(missingIds.slice(i, i + 40));
+    }
+
+    await Promise.all(
+      chunks.map(async (videoIds) => {
+        const res = await ytmPost("music/get_queue", { videoIds });
+        if (!res) return;
+        walkObject(res, (o) => {
+          const p = o?.playlistPanelVideoRenderer;
+          const id = p?.videoId;
+          const raw = p?.lengthText?.runs?.[0]?.text || p?.lengthText?.simpleText;
+          if (id && raw) {
+            if (durationCache.size >= DURATION_CACHE_MAX) {
+              const oldest = durationCache.keys().next().value;
+              if (oldest) durationCache.delete(oldest);
+            }
+            durationCache.set(id, normalizeDuration(String(raw)));
+          }
+        });
+      })
+    );
   }
 
-  await Promise.all(
-    chunks.map(async (videoIds) => {
-      const res = await ytmPost("music/get_queue", { videoIds });
-      if (!res) return;
-      walkObject(res, (o) => {
-        const p = o?.playlistPanelVideoRenderer;
-        const id = p?.videoId;
-        const raw = p?.lengthText?.runs?.[0]?.text || p?.lengthText?.simpleText;
-        if (id && raw && !durMap.has(id)) durMap.set(id, normalizeDuration(String(raw)));
-      });
-    })
-  );
-
-  if (!durMap.size) return tracks;
   return tracks.map((t) =>
-    (!t.duration || t.duration === "—") && durMap.has(t.id)
-      ? { ...t, duration: durMap.get(t.id)! }
+    (!t.duration || t.duration === "—") && durationCache.has(t.id)
+      ? { ...t, duration: durationCache.get(t.id)! }
       : t
   );
 }
@@ -400,6 +416,22 @@ function parseYtmArtists(dataList: any[], limit = 16): ArtistSummary[] {
   return artists;
 }
 
+// ponytail: in-memory explore cache with 3-minute TTL to reduce upstream YouTube hits
+interface ExploreCacheEntry {
+  data: {
+    playlists: YouTubePlaylist[];
+    activePlaylistId: string;
+    activeTitle: string;
+    tracks: Track[];
+    trending: Track[];
+    albums: AlbumSummary[];
+    artists: ArtistSummary[];
+  };
+  expiresAt: number;
+}
+const exploreCache = new Map<string, ExploreCacheEntry>();
+const EXPLORE_CACHE_TTL_MS = 3 * 60 * 1000;
+
 export async function fetchYouTubeExplore(playlistId?: string): Promise<{
   playlists: YouTubePlaylist[];
   activePlaylistId: string;
@@ -409,6 +441,12 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
   albums: AlbumSummary[];
   artists: ArtistSummary[];
 }> {
+  const cacheKey = playlistId || "__default__";
+  const cached = exploreCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
   const [homeData, chartsData, exploreData] = await Promise.all([
     ytmPost("browse", { browseId: "FEmusic_home" }),
     ytmPost("browse", { browseId: "FEmusic_charts" }),
@@ -452,7 +490,7 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
   const hTracks = hydrated.slice(0, tracks.length);
   const hTrending = hydrated.slice(tracks.length);
 
-  return {
+  const result = {
     playlists,
     activePlaylistId: selected.id,
     activeTitle: selected.title,
@@ -461,6 +499,12 @@ export async function fetchYouTubeExplore(playlistId?: string): Promise<{
     albums,
     artists,
   };
+  if (exploreCache.size >= 20) {
+    const oldest = exploreCache.keys().next().value;
+    if (oldest) exploreCache.delete(oldest);
+  }
+  exploreCache.set(cacheKey, { data: result, expiresAt: Date.now() + EXPLORE_CACHE_TTL_MS });
+  return result;
 }
 
 export async function fetchYouTubeAlbum(
@@ -541,7 +585,7 @@ export async function fetchRelatedTracks(videoId: string): Promise<Track[]> {
 }
 
 export async function searchYouTube(query: string): Promise<Track[]> {
-  const q = query.trim();
+  const q = (query || "").trim().slice(0, 150);
   if (!q) return [];
 
   const listId = extractPlaylistId(q);

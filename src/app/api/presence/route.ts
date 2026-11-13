@@ -15,6 +15,7 @@ interface RoomRecord {
 }
 
 const PRESENCE_TTL_MS = 35_000;
+const MAX_PRESENCE = 10_000;
 
 const g = globalThis as typeof globalThis & {
   __ngePlayPresenceTimes?: Map<string, number>;
@@ -64,6 +65,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, isPlaying: false });
     }
 
+    if (presenceTimes.size >= MAX_PRESENCE && !presenceTimes.has(clientId)) {
+      const oldest = presenceTimes.keys().next().value;
+      if (oldest) presenceTimes.delete(oldest);
+    }
     presenceTimes.set(clientId, now);
     return NextResponse.json({ ok: true, totalOnline: presenceTimes.size });
   } catch {
