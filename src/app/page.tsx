@@ -253,11 +253,6 @@ export default function NgePlayPage() {
         onUpdateIcon={s.updateMemberIcon}
       />
 
-      {/* ponytail: opacity-[0.02] + 220x200 above footer avoids Chromium occlusion throttling and YouTube minimum-size blocks */}
-      <div className="fixed right-3 bottom-24 z-[1] opacity-[0.02] pointer-events-none w-[220px] h-[200px]">
-        <div id="yt-audio-player" />
-      </div>
-
       <NowPlayingModal
         open={s.nowPlayingOpen}
         currentTrack={s.currentTrack}

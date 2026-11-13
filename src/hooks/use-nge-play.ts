@@ -427,6 +427,7 @@ export function useNgePlay() {
     currentTrack,
     isPlaying,
     playbackSignal,
+    getCurrentTime: () => clock.getSnapshot().currentTime,
     onPlay: handlePlayAction,
     onPause: handlePauseAction,
     onPrev: handlePrev,
