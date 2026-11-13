@@ -20,12 +20,12 @@ export const viewport: Viewport = {
 export function generateMetadata(): Metadata {
   return {
     title: {
-      default: "Nge-Play",
-      template: "%s — Nge-Play",
+      default: "Nge-Plays",
+      template: "%s — Nge-Plays",
     },
     description:
       "A simple, ad-free YouTube Music web player. Search, explore, view synced lyrics, and listen directly from YouTube.",
-    applicationName: "Nge-Play",
+    applicationName: "Nge-Plays",
     formatDetection: {
       telephone: false,
     },

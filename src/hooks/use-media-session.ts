@@ -77,7 +77,7 @@ export function useMediaSession({
     ms.metadata = new MediaMetadata({
       title: track.title,
       artist: track.channel,
-      album: "Nge-Play",
+      album: "Nge-Plays",
       artwork: artworkSrc ? [{ src: artworkSrc, sizes: "512x512" }] : [],
     });
     ms.playbackState = playing ? "playing" : "paused";

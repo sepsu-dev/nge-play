@@ -40,7 +40,7 @@ export function AppHeader({
           />
         </svg>
         <span className="font-extrabold text-[17px] tracking-tight text-[#18181B] dark:text-white">
-          Nge-Play
+          Nge-Plays
         </span>
       </button>
 

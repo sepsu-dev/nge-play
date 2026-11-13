@@ -119,7 +119,7 @@ export default function OnlinePage() {
               />
             </svg>
             <span className="font-extrabold text-base tracking-tight text-[#18181B] dark:text-white">
-              Nge-Play
+              Nge-Plays
             </span>
           </Link>
 

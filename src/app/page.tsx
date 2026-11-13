@@ -13,7 +13,7 @@ import { TrackListView } from "@/components/library/track-list-view";
 import { NowPlayingModal } from "@/components/player/now-playing-modal";
 import { PlayerFooter } from "@/components/player/player-footer";
 import { RoomModal } from "@/components/room/room-modal";
-import { useNgePlay } from "@/hooks/use-nge-play";
+import { useNgePlay } from "@/hooks/use-nge-plays";
 import type { TabId } from "@/lib/player-state";
 
 export default function NgePlayPage() {
