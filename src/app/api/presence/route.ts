@@ -15,7 +15,11 @@ interface RoomRecord {
 }
 
 const PRESENCE_TTL_MS = 35_000;
+const PRUNE_INTERVAL_MS = 15_000;
+const BROADCAST_DEBOUNCE_MS = 1_500;
 const MAX_PRESENCE = 10_000;
+const MAX_LISTENERS = 500;
+const CLIENT_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 
 const g = globalThis as typeof globalThis & {
   __ngePlayPresenceTimes?: Map<string, number>;
@@ -28,7 +32,12 @@ const presenceTimes = (g.__ngePlayPresenceTimes ??= new Map<string, number>());
 const rooms = (g.__ngePlayRooms ??= new Map<string, RoomRecord>());
 const listeners = (g.__ngePlayPresenceListeners ??= new Set<(payload: string) => void>());
 
+let lastPruneAt = 0;
+let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
+
 function prunePresence(now = Date.now()) {
+  if (now - lastPruneAt < PRUNE_INTERVAL_MS) return;
+  lastPruneAt = now;
   for (const [id, lastSeen] of presenceTimes) {
     if (now - lastSeen > PRESENCE_TTL_MS) {
       presenceTimes.delete(id);
@@ -38,23 +47,29 @@ function prunePresence(now = Date.now()) {
 
 function getPresenceSnapshot(now = Date.now()) {
   prunePresence(now);
-  const activeRoomsCount = Array.from(rooms.values())
-    .filter((r) => r.subscribers.size > 0).length;
+  const activeRooms = Array.from(rooms.values())
+    .filter((r) => r.subscribers.size > 0);
+  const totalRoomListeners = activeRooms.reduce((acc, r) => acc + r.subscribers.size, 0);
 
   return {
     totalOnline: presenceTimes.size,
-    totalRooms: activeRoomsCount,
+    totalRooms: activeRooms.length,
+    totalRoomListeners,
+    serverTime: now,
   };
 }
 
-function broadcastPresence(now = Date.now()) {
-  if (listeners.size === 0) return;
-  const payload = `data: ${JSON.stringify(getPresenceSnapshot(now))}\n\n`;
-  for (const send of listeners) {
-    try {
-      send(payload);
-    } catch {}
-  }
+function scheduleBroadcast() {
+  if (listeners.size === 0 || broadcastTimer) return;
+  broadcastTimer = setTimeout(() => {
+    broadcastTimer = null;
+    const payload = `data: ${JSON.stringify(getPresenceSnapshot())}\n\n`;
+    for (const send of listeners) {
+      try {
+        send(payload);
+      } catch {}
+    }
+  }, BROADCAST_DEBOUNCE_MS);
 }
 
 export async function GET(req: NextRequest) {
@@ -62,6 +77,10 @@ export async function GET(req: NextRequest) {
 
   if (!isSse) {
     return NextResponse.json(getPresenceSnapshot());
+  }
+
+  if (listeners.size >= MAX_LISTENERS) {
+    return new Response("Too many stream connections", { status: 503 });
   }
 
   const encoder = new TextEncoder();
@@ -98,12 +117,14 @@ export async function GET(req: NextRequest) {
       sendFn = (payload: string) => sendRaw(payload);
       listeners.add(sendFn);
 
+      // Initial state
       sendRaw(`data: ${JSON.stringify(getPresenceSnapshot())}\n\n`);
 
+      // Lightweight keep-alive comment ping (almost zero bandwidth)
       pingTimer = setInterval(() => {
         if (closed) return;
-        sendRaw(`data: ${JSON.stringify(getPresenceSnapshot())}\n\n`);
-      }, 10_000);
+        sendRaw(": p\n\n");
+      }, 25_000);
 
       req.signal.addEventListener("abort", cleanup, { once: true });
     },
@@ -123,22 +144,27 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > 1024) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  }
+
   const now = Date.now();
   prunePresence(now);
 
   try {
     const body = await req.json();
     const rawId = typeof body.clientId === "string" ? body.clientId.trim() : "";
-    if (!rawId) {
-      return NextResponse.json({ error: "Missing clientId" }, { status: 400 });
+    if (!rawId || !CLIENT_ID_REGEX.test(rawId)) {
+      return NextResponse.json({ error: "Invalid clientId" }, { status: 400 });
     }
 
-    const clientId = rawId.slice(0, 64);
+    const clientId = rawId;
     const isPlaying = Boolean(body.isPlaying);
 
     if (!isPlaying) {
       presenceTimes.delete(clientId);
-      broadcastPresence(now);
+      scheduleBroadcast();
       return NextResponse.json({ ok: true, isPlaying: false });
     }
 
@@ -147,12 +173,13 @@ export async function POST(req: NextRequest) {
       if (oldest) presenceTimes.delete(oldest);
     }
     presenceTimes.set(clientId, now);
-    broadcastPresence(now);
+    scheduleBroadcast();
 
     return NextResponse.json({ ok: true, totalOnline: presenceTimes.size });
   } catch {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 }
+
 
 
