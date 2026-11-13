@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { Toaster } from "react-hot-toast";
-import { PwaRegister } from "@/components/pwa/pwa-register";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/app/globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
+  display: "swap",
   variable: "--font-plus-jakarta",
 });
 
@@ -26,11 +26,6 @@ export function generateMetadata(): Metadata {
     description:
       "A simple, ad-free YouTube Music web player. Search, explore, view synced lyrics, and listen directly from YouTube.",
     applicationName: "Nge-Play",
-    appleWebApp: {
-      capable: true,
-      title: "Nge-Play",
-      statusBarStyle: "default",
-    },
     formatDetection: {
       telephone: false,
     },
@@ -44,8 +39,18 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={plusJakartaSans.variable}>
+      <head>
+        <link rel="preconnect" href="https://i.ytimg.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://i.ytimg.com" />
+        <link rel="preconnect" href="https://www.youtube-nocookie.com" />
+        <link rel="dns-prefetch" href="https://www.youtube-nocookie.com" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `'serviceWorker'in navigator&&navigator.serviceWorker.getRegistrations().then(r=>r.forEach(w=>w.unregister()));'caches'in window&&caches.keys().then(k=>k.filter(n=>n.startsWith('ngeplay-')).forEach(caches.delete.bind(caches)));`,
+          }}
+        />
+      </head>
       <body className="antialiased font-sans min-h-screen bg-white text-[#18181B]">
-        <PwaRegister />
         <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
         <Toaster
           position="top-center"

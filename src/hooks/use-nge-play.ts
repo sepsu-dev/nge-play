@@ -42,8 +42,12 @@ import {
 } from "@/lib/storage";
 
 export function useNgePlay() {
+  // Navigation & View
   const [tab, setTab] = useState<TabId>("home");
   const [mobileVolOpen, setMobileVolOpen] = useState(false);
+  const [openingTarget, setOpeningTarget] = useState<"album" | "artist" | null>(null);
+
+  // Search & Browse
   const [query, setQuery] = useState("");
   const [playlists, setPlaylists] = useState<YouTubePlaylist[]>([]);
   const [activePlaylistId, setActivePlaylistId] = useState("");
@@ -52,24 +56,24 @@ export function useNgePlay() {
   const [trending, setTrending] = useState<Track[]>([]);
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
-  const [activeAlbum, setActiveAlbum] = useState<{ album: AlbumSummary; tracks: Track[] } | null>(
-    null
-  );
+  const [activeAlbum, setActiveAlbum] = useState<{ album: AlbumSummary; tracks: Track[] } | null>(null);
   const [searching, setSearching] = useState(true);
   const [hydrating, setHydrating] = useState(true);
-  const [openingTarget, setOpeningTarget] = useState<"album" | "artist" | null>(null);
 
+  // Custom Playlists & Menu
   const [customPlaylists, setCustomPlaylists] = useState<CustomPlaylist[]>([]);
   const [activeCustomPlId, setActiveCustomPlId] = useState("");
   const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
 
+  // Artist Channel Details
   const [channelInfo, setChannelInfo] = useState<ChannelInfo | null>(null);
   const [channelTracks, setChannelTracks] = useState<Track[]>([]);
   const [channelCont, setChannelCont] = useState<string | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // Lyrics & Related
   const [lyrics, setLyrics] = useState<LyricsResult | null>(null);
   const [loadingLyrics, setLoadingLyrics] = useState(false);
   const [lyricVariantIdx, setLyricVariantIdx] = useState(0);
@@ -80,11 +84,13 @@ export function useNgePlay() {
   const [loadingRelated, setLoadingRelated] = useState(false);
   const relatedForIdRef = useRef<string>("");
 
+  // Queue, Liked & History
   const [queue, setQueue] = useState<Track[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [liked, setLiked] = useState<Track[]>([]);
   const [history, setHistory] = useState<Track[]>([]);
 
+  // Playback Controls
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSignal, setPlaybackSignal] = useState(0);
   const [volume, setVolume] = useState(80);

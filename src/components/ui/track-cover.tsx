@@ -41,6 +41,7 @@ export function TrackCover({
       alt={alt}
       className={className}
       loading={lazy ? "lazy" : undefined}
+      decoding="async"
       referrerPolicy="no-referrer"
       onLoad={(e) => {
         const img = e.currentTarget;

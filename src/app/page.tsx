@@ -1,10 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import type { Track } from "@/actions/youtube";
-import { HomeDashboard } from "@/components/library/home-dashboard";
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AlbumsGrid, ArtistsGrid } from "@/components/library/browse-grids";
+import { HomeDashboard } from "@/components/library/home-dashboard";
 import { LibraryView } from "@/components/library/library-view";
 import { NewPlaylistModal } from "@/components/library/new-playlist-modal";
 import { TrackContextMenu } from "@/components/library/track-context-menu";
@@ -18,27 +19,45 @@ import type { TabId } from "@/lib/player-state";
 export default function NgePlayPage() {
   const s = useNgePlay();
 
-  const activeCustomPlaylist = s.customPlaylists.find((p) => p.id === s.activeCustomPlId);
+  const activeCustomPlaylist = useMemo(
+    () => s.customPlaylists.find((p) => p.id === s.activeCustomPlId),
+    [s.customPlaylists, s.activeCustomPlId]
+  );
+
   const isCurrentLiked = s.liked.some((t) => t.id === s.currentTrack?.id);
 
-  const displayedTracks =
-    s.tab === "artists" && s.channelInfo
-      ? s.channelTracks
-      : s.tab === "albums" && s.activeAlbum
-      ? s.activeAlbum.tracks
-      : s.tab === "songs"
-      ? s.results
-      : s.tab === "queue"
-      ? s.queue
-      : s.tab === "liked"
-      ? s.liked
-      : s.tab === "history"
-      ? s.history
-      : s.tab === "playlist"
-      ? activeCustomPlaylist?.tracks || []
-      : s.results;
+  const displayedTracks = useMemo((): Track[] => {
+    switch (s.tab) {
+      case "artists":
+        return s.channelInfo ? s.channelTracks : s.results;
+      case "albums":
+        return s.activeAlbum ? s.activeAlbum.tracks : s.results;
+      case "songs":
+        return s.results;
+      case "queue":
+        return s.queue;
+      case "liked":
+        return s.liked;
+      case "history":
+        return s.history;
+      case "playlist":
+        return activeCustomPlaylist?.tracks || [];
+      default:
+        return s.results;
+    }
+  }, [
+    s.tab,
+    s.channelInfo,
+    s.channelTracks,
+    s.activeAlbum,
+    s.results,
+    s.queue,
+    s.liked,
+    s.history,
+    activeCustomPlaylist,
+  ]);
 
-  const recentTracks = (() => {
+  const recentTracks = useMemo((): Track[] => {
     const seen = new Set<string>();
     const merged: Track[] = [];
     for (const t of [...s.history, ...s.results]) {
@@ -48,7 +67,7 @@ export default function NgePlayPage() {
       if (merged.length >= 12) break;
     }
     return merged;
-  })();
+  }, [s.history, s.results]);
 
   function handleSelectTab(nextTab: TabId) {
     s.setTab(nextTab);
