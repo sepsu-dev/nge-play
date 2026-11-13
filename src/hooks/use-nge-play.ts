@@ -278,7 +278,8 @@ export function useNgePlay() {
       currentIndexRef.current = index;
       activeTrackIdRef.current = track.id;
 
-      clock.set(0, 0);
+      const initDur = parseDurationSec(track.duration);
+      clock.set(0, initDur > 0 ? initDur : 0);
       setCurrentIndex(index);
       setIsPlaying(true);
 
@@ -337,7 +338,8 @@ export function useNgePlay() {
         if (nextTrack) {
           currentIndexRef.current = idx;
           activeTrackIdRef.current = nextTrack.id;
-          clock.set(0, 0);
+          const initDur = parseDurationSec(nextTrack.duration);
+          clock.set(0, initDur > 0 ? initDur : 0);
           setCurrentIndex(idx);
           setIsPlaying(true);
           player.loadVideo(nextTrack.id, 0, true);
@@ -365,7 +367,8 @@ export function useNgePlay() {
         if (prevTrack) {
           currentIndexRef.current = idx;
           activeTrackIdRef.current = prevTrack.id;
-          clock.set(0, 0);
+          const initDur = parseDurationSec(prevTrack.duration);
+          clock.set(0, initDur > 0 ? initDur : 0);
           setCurrentIndex(idx);
           setIsPlaying(true);
           player.loadVideo(prevTrack.id, 0, true);
@@ -387,6 +390,7 @@ export function useNgePlay() {
       return;
     }
     const nextPlaying = !stateRef.current.isPlaying;
+    setIsPlaying(nextPlaying);
     if (nextPlaying) player.playVideo();
     else player.pauseVideo();
     void sendRoomCommand({
@@ -490,7 +494,8 @@ export function useNgePlay() {
 
         setQueue(bestSession.queue);
         setCurrentIndex(idx);
-        clock.set(restoredTime, 0);
+        const initDur = parseDurationSec(restoredTrack?.duration || "");
+        clock.set(restoredTime, initDur > 0 ? initDur : 0);
         if (typeof bestSession.volume === "number") setVolume(bestSession.volume);
         if (typeof bestSession.muted === "boolean") setMuted(bestSession.muted);
         if (typeof bestSession.repeat === "boolean") setRepeat(bestSession.repeat);
@@ -818,13 +823,20 @@ export function useNgePlay() {
     }
   }
 
-  async function handleSearch(searchQuery: string) {
+  const searchSeqRef = useRef(0);
+  const lastSearchedQueryRef = useRef("");
+
+  async function executeSearch(searchQuery: string, isSubmit = false) {
     const q = searchQuery.trim();
     if (!q) return;
+    if (!isSubmit && q === lastSearchedQueryRef.current) return;
+
     const chMatch = q.match(/(?:music\.)?youtube\.com\/(?:channel\/(UC[\w-]+)|(@[\w.-]+))/i);
     if (chMatch) return openChannel(chMatch[1] || chMatch[2]);
     if (q.startsWith("@") && !q.includes(" ")) return openChannel(q);
 
+    lastSearchedQueryRef.current = q;
+    const seq = ++searchSeqRef.current;
     setSearching(true);
     setOpeningTarget(null);
     setActiveAlbum(null);
@@ -834,12 +846,41 @@ export function useNgePlay() {
     setHeroTitle(`Results: ${q}`);
     try {
       const items = await searchYouTube(q);
-      if (!items.length) toast.error("No tracks found");
-      else setResults(items);
+      if (searchSeqRef.current !== seq) return;
+      if (!items.length) {
+        if (isSubmit) toast.error("No tracks found");
+      } else {
+        setResults(items);
+      }
+    } catch {
+      if (searchSeqRef.current === seq && isSubmit) {
+        toast.error("Search failed");
+      }
     } finally {
-      setSearching(false);
+      if (searchSeqRef.current === seq) {
+        setSearching(false);
+      }
     }
   }
+
+  async function handleSearch(searchQuery: string) {
+    await executeSearch(searchQuery, true);
+  }
+
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      lastSearchedQueryRef.current = "";
+      return;
+    }
+    if (q === lastSearchedQueryRef.current) return;
+
+    const timer = setTimeout(() => {
+      void executeSearch(q, false);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [query]);
 
   function saveCustomPlaylists(next: CustomPlaylist[]) {
     setCustomPlaylists(next);

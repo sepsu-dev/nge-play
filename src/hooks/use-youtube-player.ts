@@ -209,6 +209,7 @@ export function useYoutubePlayer({
     bgRetryCountRef.current = 0;
     clearBgTimers();
     clearBgProbes();
+    callbacksRef.current.setIsPlaying(true);
     if (readyRef.current) {
       syncPlayerAudio(playerRef.current);
       playerRef.current?.playVideo?.();
@@ -225,13 +226,21 @@ export function useYoutubePlayer({
     wantAutoPlayRef.current = false;
     clearBgTimers();
     clearBgProbes();
-    if (readyRef.current) playerRef.current?.pauseVideo?.();
-    else if (pendingResumeRef.current) pendingResumeRef.current.autoPlay = false;
-  }, [clearBgProbes, clearBgTimers, pendingResumeRef]);
+    callbacksRef.current.setIsPlaying(false);
+    if (readyRef.current) {
+      playerRef.current?.pauseVideo?.();
+      const t = playerRef.current?.getCurrentTime?.();
+      if (typeof t === "number" && !isNaN(t) && t >= 0) {
+        clock.set(t);
+      }
+    } else if (pendingResumeRef.current) {
+      pendingResumeRef.current.autoPlay = false;
+    }
+  }, [clearBgProbes, clearBgTimers, clock, pendingResumeRef]);
 
   const togglePlay = useCallback(() => {
     if (!readyRef.current || !playerRef.current) return;
-    if (optsRef.current.isPlaying) pauseVideo();
+    if (optsRef.current.isPlaying || wantAutoPlayRef.current) pauseVideo();
     else playVideo();
   }, [pauseVideo, playVideo]);
 
@@ -664,14 +673,28 @@ export function useYoutubePlayer({
       }
 
       let sec: number;
-      if (st !== 1 || Math.abs(raw - lastRawYt) > 0.001) {
+      if (st !== 1) {
         lastRawYt = raw;
         syncYtSec = raw;
         syncPerfMs = pNow;
         sec = raw;
       } else {
-        sec = syncYtSec + ((pNow - syncPerfMs) / 1000) * rate;
-        if (sec - raw > 0.25) sec = raw + 0.25;
+        const est = syncYtSec + ((pNow - syncPerfMs) / 1000) * rate;
+        if (Math.abs(raw - lastRawYt) > 0.001) {
+          lastRawYt = raw;
+          if (raw < syncYtSec - 0.5 || raw - est > 0.35) {
+            syncYtSec = raw;
+            syncPerfMs = pNow;
+            sec = raw;
+          } else {
+            syncYtSec = Math.max(est, raw);
+            syncPerfMs = pNow;
+            sec = syncYtSec;
+          }
+        } else {
+          sec = est;
+          if (sec - raw > 1.2) sec = raw + 1.2;
+        }
       }
       if (d > 0) sec = Math.min(sec, d);
       const nextTime = Math.max(0, sec);
