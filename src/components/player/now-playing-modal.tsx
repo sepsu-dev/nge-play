@@ -44,7 +44,7 @@ interface NowPlayingModalProps {
   onSeek: (sec: number) => void;
 }
 
-const LYRIC_LEAD_SEC = 0.2;
+const LYRIC_LEAD_SEC = 0.1;
 
 function MiniTrackSkeletonList() {
   return (
@@ -328,17 +328,48 @@ export function NowPlayingModal({
                 );
               })}
             </div>
-            {nowPlayingTab === "lyrics" && lyrics?.variants && lyrics.variants.length > 1 ? (
+            {nowPlayingTab === "lyrics" && activeLyrics?.synced.length ? (
               <div className="mb-2 flex items-center gap-1 shrink-0">
-                <Tip label="Switch lyric timing version">
+                <Tip label="Delay lyrics 0.5s">
                   <button
                     type="button"
-                    onClick={onCycleLyricVariant}
-                    className="px-2 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#B45309] dark:text-[#FFD014] hover:bg-[#FFF9DB] dark:hover:bg-[#FFD014]/15 text-[11px] font-semibold cursor-pointer tabular-nums"
+                    onClick={() => onChangeLyricOffset(Math.round((lyricOffset - 0.5) * 10) / 10)}
+                    className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
                   >
-                    v{lyricVariantIdx + 1}/{lyrics.variants.length}
+                    -0.5s
                   </button>
                 </Tip>
+                {lyricOffset !== 0 && (
+                  <Tip label="Reset lyric sync offset">
+                    <button
+                      type="button"
+                      onClick={() => onChangeLyricOffset(0)}
+                      className="px-1.5 py-1 rounded-lg bg-[#FFF9DB] dark:bg-[#FFD014]/15 text-[#B45309] dark:text-[#FFD014] text-[11px] font-semibold cursor-pointer tabular-nums"
+                    >
+                      {lyricOffset > 0 ? `+${lyricOffset.toFixed(1)}s` : `${lyricOffset.toFixed(1)}s`}
+                    </button>
+                  </Tip>
+                )}
+                <Tip label="Advance lyrics 0.5s">
+                  <button
+                    type="button"
+                    onClick={() => onChangeLyricOffset(Math.round((lyricOffset + 0.5) * 10) / 10)}
+                    className="px-1.5 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white text-[11px] font-semibold cursor-pointer tabular-nums"
+                  >
+                    +0.5s
+                  </button>
+                </Tip>
+                {lyrics?.variants && lyrics.variants.length > 1 ? (
+                  <Tip label="Switch lyric timing version">
+                    <button
+                      type="button"
+                      onClick={onCycleLyricVariant}
+                      className="px-2 py-1 rounded-lg bg-[#F4F5F7] dark:bg-[#161922] text-[#B45309] dark:text-[#FFD014] hover:bg-[#FFF9DB] dark:hover:bg-[#FFD014]/15 text-[11px] font-semibold cursor-pointer tabular-nums"
+                    >
+                      v{lyricVariantIdx + 1}/{lyrics.variants.length}
+                    </button>
+                  </Tip>
+                ) : null}
               </div>
             ) : null}
           </div>

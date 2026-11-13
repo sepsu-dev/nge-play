@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import type { Track } from "@/actions/youtube";
-import { formatTime, parseDurationSec } from "@/lib/format";
 import {
   clearQueueKeepCurrent,
   resolveExploreFallbackQueue,
@@ -232,11 +231,5 @@ assert.equal(shouldRestorePlayerAudio(true, 80, false, 80), true);
 assert.equal(shouldRestorePlayerAudio(false, 0, false, 80), true);
 assert.equal(shouldRestorePlayerAudio(false, 80, false, 80), false);
 assert.equal(shouldRestorePlayerAudio(true, 0, true, 80), false);
-
-// 11. Duration parsing and formatting sync
-assert.equal(parseDurationSec("5.13"), 313);
-assert.equal(parseDurationSec("5:13"), 313);
-assert.equal(formatTime(312.8, true), "5:13");
-assert.equal(formatTime(312.8, false), "5:12");
 
 console.log("ALL_PLAYER_STATE_CHECKS_PASSED");

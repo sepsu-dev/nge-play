@@ -21,7 +21,7 @@ import {
 import type { ArtistSummary, Track } from "@/actions/youtube";
 import { TrackCover } from "@/components/ui/track-cover";
 import { Tip } from "@/components/ui/tooltip";
-import { formatTime, parseDurationSec } from "@/lib/format";
+import { formatTime } from "@/lib/format";
 import { usePlaybackClock, type ClockStore } from "@/lib/playback-clock";
 import type { TabId } from "@/lib/player-state";
 
@@ -81,14 +81,7 @@ export function PlayerFooter({
   onToggleLike,
 }: PlayerFooterProps) {
   const { currentTime, duration } = usePlaybackClock(clock);
-  const parsedTrackDur = currentTrack?.duration ? parseDurationSec(currentTrack.duration) : 0;
-  const totalDuration = parsedTrackDur > 0 ? parsedTrackDur : (duration > 0 ? duration : 0);
-  const displayDuration =
-    currentTrack?.duration && currentTrack.duration !== "—"
-      ? currentTrack.duration.replace(/\./g, ":")
-      : formatTime(duration, true);
-  const progressPct =
-    totalDuration > 0 ? Math.min(100, Math.max(0, (currentTime / totalDuration) * 100)) : 0;
+  const progressPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const volPct = muted ? 0 : volume;
 
   const mobileNav: { id: TabId; label: string; icon: typeof Home }[] = [
@@ -137,8 +130,8 @@ export function PlayerFooter({
             type="range"
             aria-label="Seek"
             min={0}
-            max={totalDuration || 100}
-            value={Math.min(currentTime, totalDuration || 100)}
+            max={duration || 100}
+            value={Math.min(currentTime, duration || 100)}
             onChange={(e) => onSeek(Number(e.target.value))}
             className="absolute -top-2 inset-x-0 w-full h-5 opacity-0 cursor-pointer"
           />
@@ -175,7 +168,7 @@ export function PlayerFooter({
                   </button>
                 </div>
                 <span className="hidden xl:block text-[11px] font-medium text-[#9CA3AF] tabular-nums ml-2 shrink-0">
-                  {formatTime(currentTime)} - {displayDuration}
+                  {formatTime(currentTime)} - {formatTime(duration)}
                 </span>
               </>
             ) : loading ? (
