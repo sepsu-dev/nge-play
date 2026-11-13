@@ -18,9 +18,9 @@ export function AlbumsGrid({
       <h1 className="text-[22px] font-bold tracking-tight text-[#18181B] dark:text-white">
         Albums
       </h1>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {loading && !albums.length
-          ? [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+          ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
               <div key={i} className="space-y-2.5">
                 <div className="aspect-square rounded-[20px] bg-[#F7F8FA] dark:bg-[#161922] animate-pulse" />
                 <div className="h-3.5 w-3/4 rounded bg-[#F7F8FA] dark:bg-[#161922] animate-pulse" />

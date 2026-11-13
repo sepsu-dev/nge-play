@@ -61,7 +61,6 @@ const YTM_HEADERS = {
   Origin: "https://music.youtube.com",
   Referer: "https://music.youtube.com/",
   "Accept-Language": "en-US,en;q=0.9",
-  Cookie: "SOCS=CAI",
 };
 
 // ponytail: lightweight timezone/locale/IP country resolution with in-memory IP cache
@@ -137,7 +136,7 @@ async function lookupIpCountry(clientIp: string): Promise<string | undefined> {
 async function getVisitorClient(clientHint?: string) {
   const hinted = parseHintCountry(clientHint);
   let gl = hinted.gl || "";
-  let hl = hinted.hl || "en";
+  const hl = "en";
   let clientIp = "";
   let headerCountry = "";
 
@@ -157,30 +156,27 @@ async function getVisitorClient(clientHint?: string) {
     }
 
     const acceptLang = h.get("accept-language");
-    if (acceptLang) {
+    if (acceptLang && !gl) {
       const tags = acceptLang.split(",").map((t) => t.split(";")[0]?.trim()).filter(Boolean);
       const primary = tags[0];
-      if (primary) hl = primary.split("-")[0]?.toLowerCase() || hl;
-      if (!gl) {
-        for (const tag of tags) {
-          const [langPart, regionPart] = tag.split("-");
-          if (regionPart && /^[A-Za-z]{2}$/.test(regionPart)) {
-            const code = regionPart.toUpperCase();
-            if (code !== "US" || tags.length === 1) {
-              gl = code;
-              break;
-            }
-          }
-          const mapped = LANG_COUNTRY_MAP[(langPart || "").toLowerCase()];
-          if (mapped) {
-            gl = mapped;
+      for (const tag of tags) {
+        const [langPart, regionPart] = tag.split("-");
+        if (regionPart && /^[A-Za-z]{2}$/.test(regionPart)) {
+          const code = regionPart.toUpperCase();
+          if (code !== "US" || tags.length === 1) {
+            gl = code;
             break;
           }
         }
-        if (!gl && primary) {
-          const regionPart = primary.split("-")[1];
-          if (regionPart && /^[A-Za-z]{2}$/.test(regionPart)) gl = regionPart.toUpperCase();
+        const mapped = LANG_COUNTRY_MAP[(langPart || "").toLowerCase()];
+        if (mapped) {
+          gl = mapped;
+          break;
         }
+      }
+      if (!gl && primary) {
+        const regionPart = primary.split("-")[1];
+        if (regionPart && /^[A-Za-z]{2}$/.test(regionPart)) gl = regionPart.toUpperCase();
       }
     }
 
@@ -427,13 +423,18 @@ function parseYtmTracks(
 
 function cleanShortTitle(raw: string): string {
   let s = (raw || "").trim();
+  s = s.replace(/\s*\((?:so far)\)/gi, "").trim();
   s = s.split(/\s*[-–—|•·]\s*/)[0].trim() || s;
-  s = s.replace(/\b(Indonesia|Malaysia|Singapore|Thailand|Philippines|Vietnam|Korea|Japan|United States|UK|Global|Top|Viral|Trending|Hits|202\d)\b/gi, "").trim();
-  s = s.replace(/\s{2,}/g, " ").trim();
-  return s.length >= 2 ? s : raw.trim();
+  s = s
+    .replace(
+      /\s+\b(Indonesia|Malaysia|Singapore|Thailand|Philippines|Vietnam|South Korea|Korea|Japan|United States|UK|Global|India|Brazil|Australia|Germany|France)\b$/i,
+      ""
+    )
+    .trim();
+  return s.length >= 3 && !/^\d+$/.test(s) ? s : raw.trim();
 }
 
-function parseYtmPlaylists(data: any, limit = 8): YouTubePlaylist[] {
+function parseYtmPlaylists(data: any, limit = 8, officialOnly = false): YouTubePlaylist[] {
   const seen = new Set<string>();
   const list: YouTubePlaylist[] = [];
   walkObject(data, (o) => {
@@ -442,6 +443,7 @@ function parseYtmPlaylists(data: any, limit = 8): YouTubePlaylist[] {
     const id = t?.navigationEndpoint?.browseEndpoint?.browseId;
     const rawTitle = (t?.title?.runs || []).map((r: any) => r.text).join("").trim();
     if (!id || !rawTitle || !id.startsWith("VL") || seen.has(id)) return;
+    if (officialOnly && !id.startsWith("VLRDCLAK5uy_") && !id.startsWith("VLOLAK5uy_")) return;
     seen.add(id);
     const title = cleanShortTitle(rawTitle);
     list.push({ id, title });
@@ -675,18 +677,31 @@ export async function fetchYouTubeExplore(
     return cached.data;
   }
 
-  const [homeData, chartsData, exploreData] = await Promise.all([
+  const [homeData1, homeData2, chartsData, exploreData] = await Promise.all([
+    ytmPost("browse", { browseId: "FEmusic_home" }, clientHint),
     ytmPost("browse", { browseId: "FEmusic_home" }, clientHint),
     ytmPost("browse", { browseId: "FEmusic_charts" }, clientHint),
     ytmPost("browse", { browseId: "FEmusic_explore" }, clientHint),
   ]);
+  const homeData = [homeData1, homeData2];
 
   const playlists: YouTubePlaylist[] = [
     { id: "FEmusic_home", title: "Quick Picks" },
     { id: "FEmusic_explore", title: "Trending" },
   ];
   const seenPl = new Set(playlists.map((p) => p.id));
-  for (const pl of [...parseYtmPlaylists(homeData, 6), ...parseYtmPlaylists(chartsData, 4)]) {
+  let homeOfficialPls = parseYtmPlaylists(homeData, 6, true);
+  if (!homeOfficialPls.length) {
+    const retryHome = await ytmPost("browse", { browseId: "FEmusic_home" }, clientHint);
+    if (retryHome) {
+      homeData.push(retryHome);
+      homeOfficialPls = parseYtmPlaylists(retryHome, 6, true);
+    }
+  }
+  const chartPls = parseYtmPlaylists(chartsData, 4).filter(
+    (p) => !/music videos|live performances/i.test(p.title)
+  );
+  for (const pl of [...homeOfficialPls, ...chartPls]) {
     if (seenPl.has(pl.id)) continue;
     seenPl.add(pl.id);
     playlists.push(pl);
@@ -697,29 +712,27 @@ export async function fetchYouTubeExplore(
     playlists.find((p) => p.id === playlistId) ||
     (playlistId ? { id: playlistId, title: "YouTube Music" } : playlists[0]);
 
-  const chartsTracks = parseYtmTracks(chartsData, 12);
-  let rawTrending = chartsTracks.length ? chartsTracks : parseYtmTracks(exploreData, 12);
-  if (!rawTrending.length) {
-    try {
-      const searchTrending = await searchYouTube("Trending", clientHint);
-      if (searchTrending.length) rawTrending = searchTrending.slice(0, 12);
-    } catch {}
-  }
+  const chartsTracks = parseYtmTracks(chartsData, 24);
+  const exploreTracks = parseYtmTracks(exploreData, 24);
+  let rawTrending = chartsTracks.length ? chartsTracks.slice(0, 12) : exploreTracks.slice(0, 12);
 
   let tracks: Track[] = [];
   if (selected.id === "FEmusic_home") {
     if (homeData) tracks = parseYtmTracks(homeData, 30);
     if (tracks.length < 5) {
-      try {
-        const topHits = await searchYouTube("Top Hits", clientHint);
-        if (topHits.length) tracks = topHits.slice(0, 24);
-      } catch {}
+      const seedPl = homeOfficialPls[0] || playlists.find((p) => p.id.startsWith("VL"));
+      if (seedPl) {
+        const plData = await ytmPost("browse", { browseId: toYtmListBrowseId(seedPl.id) }, clientHint);
+        const plTracks = parseYtmTracks(plData, 30);
+        if (plTracks.length) tracks = plTracks;
+      }
+    }
+    if (tracks.length < 5) {
+      tracks = [...chartsTracks, ...exploreTracks].slice(0, 24);
     }
   } else if (selected.id === "FEmusic_explore") {
-    tracks = rawTrending.length ? rawTrending : (exploreData ? parseYtmTracks(exploreData, 30) : []);
-  }
-
-  if (!tracks.length) {
+    tracks = chartsTracks.length ? chartsTracks : exploreTracks;
+  } else {
     const browseId = toYtmListBrowseId(selected.id);
     const data = await ytmPost("browse", { browseId }, clientHint);
     tracks = parseYtmTracks(data, 40);
@@ -728,13 +741,8 @@ export async function fetchYouTubeExplore(
   if (!tracks.length) {
     tracks = rawTrending.length ? rawTrending : parseYtmTracks([homeData, exploreData, chartsData], 30);
   }
-  if (!tracks.length) {
-    try {
-      const fallbackSearch = await searchYouTube("Top Hits", clientHint);
-      if (fallbackSearch.length) {
-        tracks = fallbackSearch.slice(0, 20);
-      }
-    } catch {}
+  if (!rawTrending.length && tracks.length) {
+    rawTrending = tracks.slice(0, 12);
   }
 
   const albums = parseYtmAlbums([exploreData, homeData], 16);
@@ -925,11 +933,14 @@ export async function searchYouTubeMusic(
 
   const tracks = parseYtmTracks(songsData, 24);
   const seen = new Set(tracks.map((t) => t.id));
-  for (const t of parseYtmTracks(generalData, 24)) {
-    if (seen.has(t.id)) continue;
-    seen.add(t.id);
-    tracks.push(t);
-    if (tracks.length >= 24) break;
+
+  if (tracks.length < 6) {
+    for (const t of parseYtmTracks(generalData, 24)) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      tracks.push(t);
+      if (tracks.length >= 24) break;
+    }
   }
 
   if (tracks.length < 6) {

@@ -317,7 +317,7 @@ export function TrackListView({
         <div className="mb-6 space-y-3 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-[#18181B] dark:text-white">Albums</h2>
-            {albums.length > 4 && onSeeAllAlbums && (
+            {albums.length > 5 && onSeeAllAlbums && (
               <button
                 onClick={onSeeAllAlbums}
                 className="text-xs font-semibold text-[#9CA3AF] hover:text-[#18181B] dark:hover:text-white transition-colors cursor-pointer"
@@ -326,8 +326,8 @@ export function TrackListView({
               </button>
             )}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {albums.slice(0, 4).map((alb) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5">
+            {albums.slice(0, 5).map((alb) => (
               <div
                 key={alb.id}
                 onClick={() => onOpenAlbum?.(alb)}
