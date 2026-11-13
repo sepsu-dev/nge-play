@@ -9,7 +9,7 @@ import {
   shouldAcceptPlayerEvent,
   shouldAttemptBackgroundResume,
   shouldRestorePlayerAudio,
-} from "@/lib/player-state";
+} from "./player-state.ts";
 import {
   applyRoomCommand,
   computeRoomTime,
@@ -17,9 +17,10 @@ import {
   generateMemberIcon,
   generateMemberName,
   makeRoomCode,
+  MEMBER_AVATARS,
   parseMemberIcon,
   sanitizeMemberName,
-} from "@/lib/room";
+} from "./room.ts";
 
 const makeTrack = (id: string): Track => ({
   id,
@@ -118,6 +119,8 @@ assert.equal(generateMemberName().includes(" "), true);
 assert.equal(parseMemberIcon("fox"), "fox");
 assert.equal(parseMemberIcon("invalid_icon"), null);
 assert.notEqual(parseMemberIcon(generateMemberIcon()), null);
+assert.equal(MEMBER_AVATARS.length, 10);
+assert.equal(MEMBER_AVATARS[0].id, "fox");
 
 const paused = applyRoomCommand(room0, { type: "pause" }, "u2", 6000);
 assert.equal(paused.changed, true);

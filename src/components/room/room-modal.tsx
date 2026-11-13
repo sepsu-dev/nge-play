@@ -11,20 +11,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Tip } from "@/components/ui/tooltip";
-import { sanitizeRoomCode, type MemberIconId, type RoomState } from "@/lib/room";
-
-const MEMBER_AVATARS: { id: MemberIconId; label: string; emoji: string; bg: string }[] = [
-  { id: "fox", label: "Fox", emoji: "🦊", bg: "bg-orange-100 dark:bg-orange-500/20" },
-  { id: "panda", label: "Panda", emoji: "🐼", bg: "bg-zinc-200 dark:bg-zinc-500/25" },
-  { id: "cat", label: "Cat", emoji: "🐱", bg: "bg-amber-100 dark:bg-amber-500/20" },
-  { id: "owl", label: "Owl", emoji: "🦉", bg: "bg-stone-200 dark:bg-stone-500/25" },
-  { id: "bear", label: "Bear", emoji: "🐻", bg: "bg-yellow-100 dark:bg-yellow-500/20" },
-  { id: "koala", label: "Koala", emoji: "🐨", bg: "bg-sky-100 dark:bg-sky-500/20" },
-  { id: "frog", label: "Frog", emoji: "🐸", bg: "bg-emerald-100 dark:bg-emerald-500/20" },
-  { id: "bunny", label: "Bunny", emoji: "🐰", bg: "bg-pink-100 dark:bg-pink-500/20" },
-  { id: "duck", label: "Duck", emoji: "🦆", bg: "bg-teal-100 dark:bg-teal-500/20" },
-  { id: "headphones", label: "Listener", emoji: "🎧", bg: "bg-[#FFF9DB] dark:bg-[#FFD014]/20" },
-];
+import { sanitizeRoomCode, MEMBER_AVATARS, type MemberIconId, type RoomState } from "@/lib/room";
 
 function MemberAvatar({
   icon,

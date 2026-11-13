@@ -259,6 +259,49 @@ export function useNgePlay() {
   });
   playerRef.current = player;
 
+  // Realtime presence heartbeat for /online
+  useEffect(() => {
+    if (!memberId) return;
+
+    if (!isPlaying || !currentTrack) {
+      void fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: memberId, isPlaying: false }),
+      }).catch(() => {});
+      return;
+    }
+
+    const sendPing = () => {
+      void fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: memberId,
+          isPlaying: true,
+        }),
+      }).catch(() => {});
+    };
+
+    sendPing();
+    const timer = setInterval(sendPing, 15_000);
+
+    const handleUnload = () => {
+      try {
+        const payload = JSON.stringify({ clientId: memberId, isPlaying: false });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon("/api/presence", new Blob([payload], { type: "application/json" }));
+        }
+      } catch {}
+    };
+
+    window.addEventListener("beforeunload", handleUnload);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, [isPlaying, currentTrack?.id, memberId]);
+
 
 
   const joinRoomRef = useRef(joinRoom);
