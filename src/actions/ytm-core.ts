@@ -52,14 +52,19 @@ export type YtmPost = (
 
 // ponytail: in-memory cache for track durations, capped at 1500 items
 const DURATION_CACHE_MAX = 1500;
+// Batas jumlah track per request supaya action tidak bisa dipakai untuk membanjiri YouTube.
+const MAX_HYDRATE_TRACKS = 200;
 const durationCache = new Map<string, string>();
 
 export async function hydrateTrackDurations<T extends Track>(
   tracks: T[],
   ytmPost: YtmPost
 ): Promise<T[]> {
-  const missingTracks = tracks.filter((t) => t.id && (!t.duration || t.duration === "—"));
-  if (!missingTracks.length) return tracks;
+  const allTracks = Array.isArray(tracks) ? tracks : [];
+  const missingTracks = allTracks
+    .slice(0, MAX_HYDRATE_TRACKS)
+    .filter((t) => t.id && (!t.duration || t.duration === "—"));
+  if (!missingTracks.length) return allTracks;
 
   const missingIds = [
     ...new Set(
@@ -67,7 +72,7 @@ export async function hydrateTrackDurations<T extends Track>(
         .map((t) => t.id)
         .filter((id) => !durationCache.has(id))
     ),
-  ];
+  ].slice(0, MAX_HYDRATE_TRACKS);
 
   if (missingIds.length > 0) {
     const chunks: string[][] = [];
@@ -75,27 +80,27 @@ export async function hydrateTrackDurations<T extends Track>(
       chunks.push(missingIds.slice(i, i + 40));
     }
 
-    await Promise.all(
-      chunks.map(async (videoIds) => {
-        const res = await ytmPost("music/get_queue", { videoIds });
-        if (!res) return;
-        walkObject(res, (o) => {
-          const p = o?.playlistPanelVideoRenderer;
-          const id = p?.videoId;
-          const raw = p?.lengthText?.runs?.[0]?.text || p?.lengthText?.simpleText;
-          if (id && raw) {
-            if (durationCache.size >= DURATION_CACHE_MAX) {
-              const oldest = durationCache.keys().next().value;
-              if (oldest) durationCache.delete(oldest);
-            }
-            durationCache.set(id, normalizeDuration(String(raw)));
+    // Sequential (bukan Promise.all) agar satu request klien tidak memicu
+    // banyak panggilan keluar sekaligus.
+    for (const videoIds of chunks) {
+      const res = await ytmPost("music/get_queue", { videoIds });
+      if (!res) continue;
+      walkObject(res, (o) => {
+        const p = o?.playlistPanelVideoRenderer;
+        const id = p?.videoId;
+        const raw = p?.lengthText?.runs?.[0]?.text || p?.lengthText?.simpleText;
+        if (id && raw) {
+          if (durationCache.size >= DURATION_CACHE_MAX) {
+            const oldest = durationCache.keys().next().value;
+            if (oldest) durationCache.delete(oldest);
           }
-        });
-      })
-    );
+          durationCache.set(id, normalizeDuration(String(raw)));
+        }
+      });
+    }
   }
 
-  return tracks.map((t) =>
+  return allTracks.map((t) =>
     (!t.duration || t.duration === "—") && durationCache.has(t.id)
       ? { ...t, duration: durationCache.get(t.id)! }
       : t

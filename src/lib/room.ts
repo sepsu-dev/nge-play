@@ -101,7 +101,55 @@ const NAME_NOUN = [
 ];
 
 export function sanitizeMemberName(raw: string): string {
-  return raw.trim().replace(/\s+/g, " ").slice(0, 24);
+  return raw
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 24);
+}
+
+const TRACK_ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
+
+function safeText(value: unknown, max: number): string {
+  return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, max) : "";
+}
+
+function safeHttpsUrl(value: unknown, max = 500): string {
+  const url = typeof value === "string" ? value.trim() : "";
+  return url.length <= max && /^https:\/\//i.test(url) ? url : "";
+}
+
+/**
+ * Whitelist satu track dari input klien (room API). Field asing dibuang dan
+ * panjang string dibatasi supaya payload room tidak bisa dipakai untuk
+ * membengkakkan memori/bandwidth atau menyimpan data aneh.
+ */
+export function normalizeTrack(raw: unknown): Track | null {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as Record<string, unknown>;
+  const id = typeof t.id === "string" ? t.id.trim() : "";
+  if (!TRACK_ID_RE.test(id)) return null;
+
+  return {
+    id,
+    title: safeText(t.title, 200).trim() || "Unknown track",
+    channel: safeText(t.channel, 120),
+    channelId: safeText(t.channelId, 64) || undefined,
+    duration: safeText(t.duration, 16) || "—",
+    thumbnail: safeHttpsUrl(t.thumbnail),
+    views: safeText(t.views, 32) || undefined,
+  };
+}
+
+export function sanitizeQueue(raw: unknown, max = 60): Track[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Track[] = [];
+  for (const item of raw) {
+    const track = normalizeTrack(item);
+    if (track) out.push(track);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 export function generateMemberName(): string {
@@ -167,7 +215,7 @@ export function createRoomState(params: {
   now?: number;
 }): RoomState {
   const now = params.now ?? Date.now();
-  const queue = params.queue.slice(0, 60);
+  const queue = sanitizeQueue(params.queue).slice(0, 60);
   const maxIdx = Math.max(0, queue.length - 1);
   const currentIndex = Math.min(Math.max(0, params.currentIndex), maxIdx);
   const anchorTime = Math.max(0, Number.isFinite(params.currentTime) ? params.currentTime : 0);
@@ -215,7 +263,7 @@ export function applyRoomCommand(
   }
 
   if (command.type === "setTrack") {
-    const nextQueue = command.queue ? command.queue.slice(0, 60) : room.queue;
+    const nextQueue = command.queue ? sanitizeQueue(command.queue) : room.queue;
     if (!nextQueue.length) return { room, changed: false };
     const idx = Math.min(Math.max(0, command.index), nextQueue.length - 1);
     const sameTrack = nextQueue[idx]?.id === room.queue[room.currentIndex]?.id;

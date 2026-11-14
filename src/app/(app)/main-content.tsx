@@ -65,7 +65,11 @@ export function MainContent() {
   }, [s.history, s.results, s.trending]);
 
   const listLoading =
-    s.tab === "liked" || s.tab === "history" || s.tab === "playlist"
+    s.tab === "playlist"
+      ? // Jangan tampilkan halaman kosong: selama boot atau saat id playlist tidak
+        // ditemukan (RouteSync akan redirect ke /library), tetap tampilkan skeleton.
+        s.hydrating || !activeCustomPlaylist
+      : s.tab === "liked" || s.tab === "history"
       ? s.hydrating
       : s.tab === "queue"
       ? s.hydrating || (s.searching && s.queue.length === 0)

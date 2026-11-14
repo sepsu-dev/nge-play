@@ -20,7 +20,7 @@ import { useMediaSession } from "@/hooks/use-media-session";
 import type { Track } from "@/actions/ytm-core";
 import { isSameQueue, useRoomSync, type RoomPlayerBridge } from "@/hooks/use-room-sync";
 import { useYoutubePlayer } from "@/hooks/use-youtube-player";
-import { useNavigate, useRoute } from "@/hooks/use-route";
+import { useNavigate, useReplace, useRoute } from "@/hooks/use-route";
 import { createTtlCache, getClientHint } from "@/lib/client-cache";
 import { parseDurationSec } from "@/lib/format";
 import { createClockStore, type ClockStore } from "@/lib/playback-clock";
@@ -89,6 +89,7 @@ export function useNgePlay() {
   // sehingga sidebar/footer/list cukup membaca satu sumber kebenaran.
   const route = useRoute();
   const goTo = useNavigate();
+  const goReplace = useReplace();
   const [tab, setTabState] = useState<TabId>(route.tab);
   const routeRef = useRef(route);
   routeRef.current = route;
@@ -103,6 +104,15 @@ export function useNgePlay() {
       goTo(tabToRoute(next.tab, next.entityId, next.query));
     },
     [goTo]
+  );
+
+  // Redirect koreksi (link rusak / data gagal dimuat) tanpa menambah history.
+  const replaceRoute = useCallback(
+    (next: Route) => {
+      setTabState(next.tab);
+      goReplace(tabToRoute(next.tab, next.entityId, next.query));
+    },
+    [goReplace]
   );
 
   // setTab tetap ada supaya handler lama tidak perlu diubah; sekarang menerjemahkan
@@ -818,74 +828,96 @@ export function useNgePlay() {
     });
   }
 
-  const openAlbumById = useCallback(async (albumId: string) => {
-    if (!albumId) return;
-    setSearching(true);
-    setOpeningTarget("album");
-    try {
-      const data = await cachedFetchYouTubeAlbum(albumId);
-      if (data) setActiveAlbum(data);
-      else toast.error("Failed to load album");
-    } finally {
-      setSearching(false);
-      setOpeningTarget((cur) => (cur === "album" ? null : cur));
-    }
-  }, []);
+  const openAlbumById = useCallback(
+    async (albumId: string) => {
+      if (!albumId) return;
+      setSearching(true);
+      setOpeningTarget("album");
+      try {
+        const data = await cachedFetchYouTubeAlbum(albumId);
+        if (data) {
+          setActiveAlbum(data);
+        } else {
+          toast.error("Failed to load album");
+          // Link album rusak/tidak tersedia -> kembali ke daftar album.
+          replaceRoute(tabToRoute("albums"));
+        }
+      } finally {
+        setSearching(false);
+        setOpeningTarget((cur) => (cur === "album" ? null : cur));
+      }
+    },
+    [replaceRoute]
+  );
 
-  // Deep link: /albums/[id] & /artists/[id] harus memuat datanya sendiri.
+  const openChannel = useCallback(
+    async (target: Track | ArtistSummary | string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      setNowPlayingOpen(false);
+      setSearching(true);
+      setOpeningTarget("artist");
+      setActiveAlbum(null);
+      setChannelInfo(null);
+      setChannelTracks([]);
+      setChannelCont(undefined);
+      setTabState("artists");
+      try {
+        let cid: string | undefined;
+        let knownName: string | undefined;
+        if (typeof target === "string") {
+          cid = target;
+        } else if ("name" in target) {
+          cid = target.id;
+          knownName = target.name;
+        } else {
+          cid = target.channelId;
+          knownName = target.channel;
+          if (!cid) cid = (await resolveChannelFromVideo(target.id)) || undefined;
+        }
+        if (!cid) {
+          toast.error("Artist channel not found");
+          replaceRoute(tabToRoute("artists"));
+          return;
+        }
+        const data = await cachedFetchYouTubeChannel(cid, undefined, knownName);
+        if (!data) {
+          toast.error("Failed to load artist tracks");
+          // Link artis rusak/tidak tersedia -> kembali ke daftar artis.
+          replaceRoute(tabToRoute("artists"));
+          return;
+        }
+        setChannelInfo(data.channel);
+        setChannelTracks(data.tracks);
+        setChannelCont(data.continuation);
+        if (data.channel.id) {
+          navigate({
+            tab: "artists",
+            path: ROUTES.artist(data.channel.id),
+            entityId: data.channel.id,
+          });
+        }
+      } finally {
+        setSearching(false);
+        setOpeningTarget((cur) => (cur === "artist" ? null : cur));
+      }
+    },
+    [navigate, replaceRoute]
+  );
+
+  // Deep link: /albums/[id] & /artists/[id] memuat datanya sendiri saat dibuka
+  // langsung / di-refresh. Guard `openingTarget`/data aktif mencegah fetch ganda
+  // saat navigasi dilakukan dari dalam app.
   useEffect(() => {
-    if (route.tab === "albums" && route.entityId) void openAlbumById(route.entityId);
-  }, [route.tab, route.entityId, openAlbumById]);
+    const id = route.tab === "albums" ? route.entityId : undefined;
+    if (!id || activeAlbum?.album.id === id || openingTarget === "album") return;
+    void openAlbumById(id);
+  }, [route.tab, route.entityId, activeAlbum?.album.id, openingTarget, openAlbumById]);
 
-  async function openChannel(target: Track | ArtistSummary | string, e?: React.MouseEvent) {
-    e?.stopPropagation();
-    setNowPlayingOpen(false);
-    setSearching(true);
-    setOpeningTarget("artist");
-    setActiveAlbum(null);
-    setChannelInfo(null);
-    setChannelTracks([]);
-    setChannelCont(undefined);
-    setTabState("artists");
-    try {
-      let cid: string | undefined;
-      let knownName: string | undefined;
-      if (typeof target === "string") {
-        cid = target;
-      } else if ("name" in target) {
-        cid = target.id;
-        knownName = target.name;
-      } else {
-        cid = target.channelId;
-        knownName = target.channel;
-        if (!cid) cid = (await resolveChannelFromVideo(target.id)) || undefined;
-      }
-      if (!cid) {
-        toast.error("Artist channel not found");
-        setTab("home");
-        return;
-      }
-      const data = await cachedFetchYouTubeChannel(cid, undefined, knownName);
-      if (!data) {
-        toast.error("Failed to load artist tracks");
-        setTab("home");
-        return;
-      }
-      setChannelInfo(data.channel);
-      setChannelTracks(data.tracks);
-      setChannelCont(data.continuation);
-      if (data.channel.id) {
-        navigate({
-          tab: "artists",
-          path: ROUTES.artist(data.channel.id),
-          entityId: data.channel.id,
-        });
-      }
-    } finally {
-      setSearching(false);
-      setOpeningTarget((cur) => (cur === "artist" ? null : cur));
-    }
-  }
+  useEffect(() => {
+    const id = route.tab === "artists" ? route.entityId : undefined;
+    if (!id || channelInfo?.id === id || openingTarget === "artist") return;
+    void openChannel(id);
+  }, [route.tab, route.entityId, channelInfo?.id, openingTarget, openChannel]);
 
   async function openAlbum(album: AlbumSummary) {
     if (!album.id) return;
@@ -898,6 +930,7 @@ export function useNgePlay() {
       const data = await cachedFetchYouTubeAlbum(album.id);
       if (!data) {
         toast.error("Failed to load album");
+        replaceRoute(tabToRoute("albums"));
         return;
       }
       setActiveAlbum(data);

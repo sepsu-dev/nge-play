@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { usePlayer } from "@/app/(app)/player-provider";
 import { isPlaylistId, type TabId } from "@/lib/player-state";
-import { normalizePlaylistId, ROUTES } from "@/lib/routes";
+import { isAlbumId, isArtistId, normalizePlaylistId, ROUTES } from "@/lib/routes";
 
 /**
  * Menyelaraskan menu aktif dengan halaman yang sedang dirender.
@@ -35,6 +35,19 @@ export function RouteSync({ tab, entityId }: { tab: TabId; entityId?: string }) 
     }
 
     if (tab !== "playlist") {
+      // Album/artis: id dari URL divalidasi. Path rusak diarahkan ke daftar.
+      const invalid =
+        (tab === "albums" && !isAlbumId(entityId)) ||
+        (tab === "artists" && !isArtistId(entityId));
+      if (invalid) {
+        const key = `${tab}:${entityId}`;
+        if (redirectedRef.current !== key) {
+          redirectedRef.current = key;
+          s.syncRoute(tab);
+          router.replace(tab === "albums" ? ROUTES.albums : ROUTES.artists);
+        }
+        return;
+      }
       if (s.tab !== tab || s.route.entityId !== entityId) s.syncRoute(tab, entityId);
       return;
     }

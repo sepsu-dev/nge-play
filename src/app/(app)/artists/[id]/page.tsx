@@ -5,7 +5,7 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
   const { id } = await params;
   return (
     <>
-      <RouteSync tab="artists" entityId={decodeURIComponent(id)} />
+      <RouteSync tab="artists" entityId={id} />
       <MainContent />
     </>
   );

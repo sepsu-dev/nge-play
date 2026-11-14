@@ -37,6 +37,37 @@ export function normalizePlaylistId(id: string): string {
   return isPlaylistId(trimmed) ? trimmed.toLowerCase() : trimmed;
 }
 
+// Id playlist lama (sebelum UUID) berformat aman: huruf/angka/underscore/hyphen.
+// Selain itu dianggap path rusak -> kembali ke Library.
+const LEGACY_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+function isPlaylistRouteId(id: string): boolean {
+  return isPlaylistId(id) || LEGACY_PLAYLIST_ID_RE.test(id);
+}
+
+/** Decode URL dengan aman: `%` rusak tidak boleh membuat seluruh app crash. */
+export function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+// Id album berasal dari YouTube `browseId` (mis. MPREb_...), id artis = channel
+// ID YouTube (UC...). Divalidasi ketat supaya path/karakter aneh tidak pernah
+// diteruskan ke API atau dipakai membangun URL.
+const ALBUM_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const ARTIST_ID_RE = /^UC[A-Za-z0-9_-]{22}$/;
+
+export function isAlbumId(id: string): boolean {
+  return ALBUM_ID_RE.test(id.trim());
+}
+
+export function isArtistId(id: string): boolean {
+  return ARTIST_ID_RE.test(id.trim());
+}
+
 /** Petakan TabId -> rute. Dipakai handler lama agar tetap kompatibel. */
 export function tabToRoute(tab: TabId, entityId?: string, query?: string): Route {
   switch (tab) {
@@ -76,23 +107,29 @@ export function routeFromLocation(pathname: string, search: string): Route {
   if (path === "/library") return { tab: "library", path: ROUTES.library };
   if (path === "/library/liked") return { tab: "liked", path: ROUTES.liked };
   if (path === "/library/history") return { tab: "history", path: ROUTES.history };
+  if (path === "/library/playlist") return { tab: "library", path: ROUTES.library };
   if (path.startsWith("/library/playlist/")) {
-    const id = normalizePlaylistId(decodeURIComponent(path.slice("/library/playlist/".length)));
-    if (id) return { tab: "playlist", path: ROUTES.playlist(id), entityId: id };
+    const id = normalizePlaylistId(safeDecode(path.slice("/library/playlist/".length)));
+    if (isPlaylistRouteId(id)) return { tab: "playlist", path: ROUTES.playlist(id), entityId: id };
+    return { tab: "library", path: ROUTES.library };
   }
   // URL lama (/library/<id>) tetap dibaca supaya bookmark lama tidak rusak.
   if (path.startsWith("/library/")) {
-    const id = normalizePlaylistId(decodeURIComponent(path.slice("/library/".length)));
-    if (id) return { tab: "playlist", path: ROUTES.playlist(id), entityId: id };
+    const id = normalizePlaylistId(safeDecode(path.slice("/library/".length)));
+    if (isPlaylistRouteId(id)) return { tab: "playlist", path: ROUTES.playlist(id), entityId: id };
+    return { tab: "library", path: ROUTES.library };
   }
   if (path === "/albums") return { tab: "albums", path: ROUTES.albums };
   if (path.startsWith("/albums/")) {
-    const id = decodeURIComponent(path.slice("/albums/".length));
+    const id = safeDecode(path.slice("/albums/".length)).trim();
+    // Id tidak valid -> tampilkan daftar album, bukan halaman detail kosong.
+    if (!isAlbumId(id)) return { tab: "albums", path: ROUTES.albums };
     return { tab: "albums", path: ROUTES.album(id), entityId: id };
   }
   if (path === "/artists") return { tab: "artists", path: ROUTES.artists };
   if (path.startsWith("/artists/")) {
-    const id = decodeURIComponent(path.slice("/artists/".length));
+    const id = safeDecode(path.slice("/artists/".length)).trim();
+    if (!isArtistId(id)) return { tab: "artists", path: ROUTES.artists };
     return { tab: "artists", path: ROUTES.artist(id), entityId: id };
   }
   return { tab: "home", path: ROUTES.home };

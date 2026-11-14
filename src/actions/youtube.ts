@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { sanitizeIp, takeRateLimit } from "@/lib/server-guard";
 import {
   FALLBACK_THUMB,
   THUMB_SIZE,
@@ -187,7 +188,9 @@ async function getVisitorClient(clientHint?: string) {
     const forwarded = h.get("x-forwarded-for");
     const cfIp = h.get("cf-connecting-ip");
     const realIp = h.get("x-real-ip");
-    clientIp = cfIp || realIp || (forwarded ? forwarded.split(",")[0].trim() : "");
+    // Validasi IP sebelum dipakai: header bisa dipalsukan klien, dan nilai ini
+    // diteruskan ke YouTube / api.country.is.
+    clientIp = sanitizeIp(cfIp || realIp || (forwarded ? forwarded.split(",")[0].trim() : ""));
   } catch {}
 
   if (headerCountry) {
@@ -210,6 +213,10 @@ async function ytmPost(
 ): Promise<any | null> {
   try {
     const { gl, hl, clientIp } = await getVisitorClient(clientHint);
+    // Rate limit per IP agar action tidak bisa dipakai sebagai proxy YouTube gratis.
+    // Tanpa IP (mis. localhost tanpa proxy) limit dilewati agar semua user tidak
+    // berbagi satu bucket "anon".
+    if (clientIp && !takeRateLimit(`ytm:${clientIp}`, 120)) return null;
     const reqHeaders: Record<string, string> = {
       ...YTM_HEADERS,
       "Accept-Language": `${hl}-${gl},${hl};q=0.9,en;q=0.8`,
@@ -616,6 +623,8 @@ export async function fetchYouTubeExplore(
   albums: AlbumSummary[];
   artists: ArtistSummary[];
 }> {
+  playlistId = (playlistId || "").trim().slice(0, 128);
+  clientHint = (clientHint || "").slice(0, 32);
   const { gl } = await getVisitorClient(clientHint);
   const cacheKey = `${gl}:${playlistId || "__default__"}`;
   const cached = exploreCache.get(cacheKey);
@@ -718,6 +727,7 @@ export async function fetchYouTubeExplore(
 export async function fetchYouTubeAlbum(
   albumId: string
 ): Promise<{ album: AlbumSummary; tracks: Track[] } | null> {
+  albumId = (albumId || "").trim().slice(0, 128);
   if (!albumId) return null;
   const data = await ytmPost("browse", { browseId: albumId });
   if (!data) return null;
@@ -758,6 +768,7 @@ export async function fetchYouTubeAlbum(
 }
 
 export async function fetchRelatedTracks(videoId: string): Promise<Track[]> {
+  videoId = (videoId || "").trim().slice(0, 64);
   if (!videoId) return [];
   const nxt = await ytmPost("next", { videoId, isAudioOnly: true });
   let relBid = "";
@@ -802,6 +813,7 @@ export async function searchYouTubeMusic(
   clientHint?: string
 ): Promise<SearchResults> {
   const q = (query || "").trim().slice(0, 150);
+  clientHint = (clientHint || "").slice(0, 32);
   if (!q) return { tracks: [], albums: [], artists: [] };
 
   const listId = extractPlaylistId(q);
@@ -923,6 +935,7 @@ export async function hydrateTrackDurations(tracks: Track[], clientHint?: string
 }
 
 export async function resolveChannelFromVideo(videoId: string): Promise<string | null> {
+  videoId = (videoId || "").trim().slice(0, 64);
   if (!videoId) return null;
   const nxt = await ytmPost("next", { videoId });
   return findBrowseId(nxt) || null;
@@ -933,6 +946,9 @@ export async function fetchYouTubeChannel(
   continuation?: string,
   knownTitle?: string
 ): Promise<ChannelVideosResult | null> {
+  channelId = (channelId || "").trim().slice(0, 128);
+  continuation = continuation ? continuation.slice(0, 512) : undefined;
+  knownTitle = knownTitle ? knownTitle.slice(0, 200) : undefined;
   if (!channelId) return null;
 
   if (continuation) {

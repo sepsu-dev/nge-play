@@ -29,6 +29,45 @@ function setRoomUrlParam(code: string | null) {
   window.history.replaceState(null, "", url.pathname + url.search + url.hash);
 }
 
+const ROOM_TOKENS_KEY = "ngeplay_room_tokens";
+
+function readRoomTokens(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ROOM_TOKENS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getRoomToken(code: string): string {
+  const token = readRoomTokens()[code];
+  return typeof token === "string" ? token : "";
+}
+
+function saveRoomToken(code: string, token: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const tokens = readRoomTokens();
+    tokens[code] = token;
+    localStorage.setItem(ROOM_TOKENS_KEY, JSON.stringify(tokens));
+  } catch {}
+}
+
+function deleteRoomToken(code: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const tokens = readRoomTokens();
+    if (code in tokens) {
+      delete tokens[code];
+      localStorage.setItem(ROOM_TOKENS_KEY, JSON.stringify(tokens));
+    }
+  } catch {}
+}
+
 export interface RoomPlayerBridge {
   loadVideo: (videoId: string, seekTo?: number, autoPlay?: boolean) => void;
   seekTo: (val: number) => void;
@@ -87,6 +126,7 @@ export function useRoomSync({
   const lastRoomResyncAtRef = useRef(0);
   const lastAppliedVersionRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const roomTokenRef = useRef("");
 
   const getClientId = useCallback(() => {
     if (!clientIdRef.current) {
@@ -157,9 +197,12 @@ export function useRoomSync({
   }, []);
 
   const clearRoomLocal = useCallback(() => {
+    const code = roomRef.current?.code;
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
     roomRef.current = null;
+    roomTokenRef.current = "";
+    if (code) deleteRoomToken(code);
     lastAppliedVersionRef.current = 0;
     hasClockOffsetRef.current = false;
     bestRttRef.current = Infinity;
@@ -250,14 +293,14 @@ export function useRoomSync({
   );
 
   const connectRoomStream = useCallback(
-    (code: string) => {
+    (code: string, token = roomTokenRef.current) => {
       eventSourceRef.current?.close();
       const es = new EventSource(
         `/api/room?code=${encodeURIComponent(code)}&clientId=${encodeURIComponent(
           getClientId()
         )}&name=${encodeURIComponent(getMemberName())}&icon=${encodeURIComponent(
           getMemberIcon()
-        )}`
+        )}&token=${encodeURIComponent(token)}`
       );
       eventSourceRef.current = es;
       es.addEventListener("state", (ev) => {
@@ -293,12 +336,18 @@ export function useRoomSync({
             type: "command",
             code: cur.code,
             clientId: getClientId(),
+            token: roomTokenRef.current,
             command,
           }),
         });
         if (res.status === 404) {
           clearRoomLocal();
           toast.error("Room not found");
+          return;
+        }
+        if (res.status === 403) {
+          clearRoomLocal();
+          toast.error("Room access expired");
           return;
         }
         if (!res.ok) return;
@@ -334,13 +383,15 @@ export function useRoomSync({
         }),
       });
       if (!res.ok) throw new Error();
-      const data = (await res.json()) as { room: RoomState; serverNow: number };
+      const data = (await res.json()) as { room: RoomState; serverNow: number; token: string };
       syncClockOffset(data.serverNow, t0);
+      roomTokenRef.current = data.token;
+      saveRoomToken(data.room.code, data.token);
       roomRef.current = data.room;
       lastAppliedVersionRef.current = data.room.version;
       setRoom(data.room);
       setRoomUrlParam(data.room.code);
-      connectRoomStream(data.room.code);
+      connectRoomStream(data.room.code, data.token);
       toast.success(`Room ${data.room.code} created`);
     } catch {
       toast.error("Failed to create room");
@@ -368,28 +419,41 @@ export function useRoomSync({
       setRoomBusy(true);
       const t0 = Date.now();
       try {
-        const res = await fetch("/api/room", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "join",
-            code,
-            clientId: getClientId(),
-            name: getMemberName(),
-            icon: getMemberIcon(),
-          }),
-        });
+        const postJoin = (token: string) =>
+          fetch("/api/room", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "join",
+              code,
+              clientId: getClientId(),
+              name: getMemberName(),
+              icon: getMemberIcon(),
+              token,
+            }),
+          });
+
+        let storedToken = getRoomToken(code);
+        let res = await postJoin(storedToken);
+        // Token lokal bisa basi (mis. storage dibersihkan); coba sekali tanpa token.
+        if (res.status === 403 && storedToken) {
+          deleteRoomToken(code);
+          storedToken = "";
+          res = await postJoin("");
+        }
         if (!res.ok) {
           if (silent) setRoomUrlParam(null);
-          toast.error("Room not found");
+          toast.error(res.status === 403 ? "Room access denied" : "Room not found");
           return false;
         }
-        const data = (await res.json()) as { room: RoomState; serverNow: number };
+        const data = (await res.json()) as { room: RoomState; serverNow: number; token: string };
         syncClockOffset(data.serverNow, t0);
+        roomTokenRef.current = data.token;
+        saveRoomToken(data.room.code, data.token);
         lastAppliedVersionRef.current = 0;
         applyRoomSnapshot(data.room, data.serverNow);
         setRoomUrlParam(data.room.code);
-        connectRoomStream(data.room.code);
+        connectRoomStream(data.room.code, data.token);
         toast.success(`Joined room ${data.room.code}`);
         return true;
       } catch {
@@ -441,6 +505,7 @@ export function useRoomSync({
             type: "rename",
             code: cur.code,
             clientId: getClientId(),
+            token: roomTokenRef.current,
             ...(nextName ? { name: nextName } : {}),
             ...(nextIcon ? { icon: nextIcon } : {}),
           }),
@@ -448,6 +513,11 @@ export function useRoomSync({
         if (res.status === 404) {
           clearRoomLocal();
           toast.error("Room not found");
+          return false;
+        }
+        if (res.status === 403) {
+          clearRoomLocal();
+          toast.error("Room access expired");
           return false;
         }
         if (!res.ok) throw new Error();
@@ -477,12 +547,13 @@ export function useRoomSync({
 
   const leaveRoom = useCallback(() => {
     const code = roomRef.current?.code;
+    const token = roomTokenRef.current;
     clearRoomLocal();
     if (code) {
       void fetch("/api/room", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "leave", code, clientId: getClientId() }),
+        body: JSON.stringify({ type: "leave", code, clientId: getClientId(), token }),
       }).catch(() => {});
     }
     toast.success("Left room");

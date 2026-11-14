@@ -13,7 +13,7 @@ import {
   shouldAttemptBackgroundResume,
   shouldRestorePlayerAudio,
 } from "./player-state";
-import { normalizePlaylistId, ROUTES, routeFromLocation } from "./routes";
+import { isAlbumId, isArtistId, normalizePlaylistId, ROUTES, routeFromLocation, safeDecode } from "./routes";
 import {
   applyRoomCommand,
   computeRoomTime,
@@ -22,8 +22,10 @@ import {
   generateMemberName,
   makeRoomCode,
   MEMBER_AVATARS,
+  normalizeTrack,
   parseMemberIcon,
   sanitizeMemberName,
+  sanitizeQueue,
 } from "./room";
 
 const makeTrack = (id: string): Track => ({
@@ -104,12 +106,16 @@ assert.equal(shouldAcceptPlayerEvent("vid_A", "vid_B", null, 1, false), false);
 assert.equal(shouldAcceptPlayerEvent("vid_B", "vid_B", null, 1, false), true);
 
 // 7. Room state sync & baseVersion conflict guard
+// ID panjang (>=6) karena payload room di-whitelist oleh normalizeTrack.
+const ra = makeTrack("vid_AAAA");
+const rb = makeTrack("vid_BBBB");
+const rc = makeTrack("vid_CCCC");
 const room0 = createRoomState({
   code: "ABC123",
   clientId: "u1",
   clientName: "  Chill   Panda  ",
   clientIcon: "fox",
-  queue: [a, b, c],
+  queue: [ra, rb, rc],
   currentIndex: 0,
   currentTime: 10,
   isPlaying: true,
@@ -291,5 +297,69 @@ assert.equal(
   "9f1c2a3e-1b2c-4d5e-8f90-123456789abc"
 );
 assert.equal(routeFromLocation("/library/pl_1730000000", "").tab, "playlist");
+
+// 14. Album & artist id: validasi ketat, path rusak jatuh ke halaman daftar.
+assert.equal(isAlbumId("MPREb_9FakeAlbum123"), true);
+assert.equal(isAlbumId("ab"), false);
+assert.equal(isAlbumId("../../etc/passwd"), false);
+assert.equal(isAlbumId("MPREb_9Fake/Album"), false);
+assert.equal(isArtistId("UCabcdefghijklmnopqrstuv"), true);
+assert.equal(isArtistId("UCshort"), false);
+assert.equal(isArtistId("MPREb_9FakeAlbum123"), false);
+
+const badAlbum = routeFromLocation("/albums/ab", "");
+assert.equal(badAlbum.tab, "albums");
+assert.equal(badAlbum.entityId, undefined, "album id invalid tidak dipakai");
+assert.equal(badAlbum.path, ROUTES.albums);
+const badArtist = routeFromLocation("/artists/not-a-channel", "");
+assert.equal(badArtist.tab, "artists");
+assert.equal(badArtist.entityId, undefined, "artist id invalid tidak dipakai");
+assert.equal(badArtist.path, ROUTES.artists);
+
+// 15. URL malformed tidak boleh throw; playlist junk kembali ke Library.
+assert.equal(safeDecode("%"), "%");
+assert.equal(safeDecode("MPREb_9FakeAlbum123"), "MPREb_9FakeAlbum123");
+assert.equal(routeFromLocation("/library/playlist/%", "").tab, "library");
+assert.equal(routeFromLocation("/library/playlist/%2Fetc", "").tab, "library");
+
+// 16. Payload room di-whitelist: field asing dibuang, URL non-https ditolak,
+// karakter kontrol dibersihkan, dan panjang queue dibatasi.
+assert.equal(sanitizeMemberName("  Ali\u0000ce\u200b  "), "Alice", "nama dibersihkan");
+assert.equal(sanitizeMemberName("x".repeat(50)).length, 24, "nama dibatasi 24 char");
+
+assert.equal(normalizeTrack({ id: "bad id!" }), null, "id video invalid ditolak");
+assert.equal(normalizeTrack("not-an-object"), null);
+assert.equal(normalizeTrack(null), null);
+
+const cleaned = normalizeTrack({
+  id: "dQw4w9WgXcQ",
+  title: "Hello\u0000 World",
+  channel: "Some Channel",
+  duration: "3:21",
+  thumbnail: "javascript:alert(1)",
+  evil: "drop me",
+});
+assert.ok(cleaned);
+assert.equal(cleaned!.title, "Hello World");
+assert.equal(cleaned!.thumbnail, "", "thumbnail non-https dibuang");
+assert.equal(cleaned!.duration, "3:21");
+assert.equal("evil" in cleaned!, false, "field asing dibuang");
+assert.equal(
+  normalizeTrack({ id: "dQw4w9WgXcQ", thumbnail: "https://i.ytimg.com/vi/x/mqdefault.jpg" })!.thumbnail,
+  "https://i.ytimg.com/vi/x/mqdefault.jpg"
+);
+
+const queueInput = [
+  { id: "dQw4w9WgXcQ", title: "A" },
+  { id: "bad id!" },
+  { id: "abcdefghijk", title: "B" },
+];
+assert.equal(sanitizeQueue(queueInput).length, 2, "track invalid dibuang");
+assert.equal(
+  sanitizeQueue(queueInput, 1).length,
+  1,
+  "queue dibatasi sesuai max"
+);
+assert.deepEqual(sanitizeQueue("nope"), [], "non-array jadi queue kosong");
 
 console.log("ALL_PLAYER_STATE_CHECKS_PASSED");

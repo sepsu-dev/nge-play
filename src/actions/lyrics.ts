@@ -1,5 +1,7 @@
 "use server";
 
+import { getClientIp, takeRateLimit } from "@/lib/server-guard";
+
 export interface LyricLine {
   time: number;
   text: string;
@@ -225,10 +227,16 @@ export async function fetchTrackLyrics(
   channel: string,
   durationSec?: number
 ): Promise<LyricsResult | null> {
+  title = (title || "").slice(0, 300);
+  channel = (channel || "").slice(0, 200);
   const cacheKey = `${normText(title)}|${normText(channel)}|${durationSec && durationSec > 0 ? Math.round(durationSec) : 0}`;
   if (lyricsCache.has(cacheKey)) {
     return lyricsCache.get(cacheKey) ?? null;
   }
+
+  // Rate limit request yang benar-benar memanggil lrclib (cache hit tidak dihitung).
+  const ip = await getClientIp();
+  if (ip && !takeRateLimit(`lyrics:${ip}`, 30)) return null;
 
   const saveCache = (res: LyricsResult | null) => {
     if (lyricsCache.size >= LYRICS_CACHE_MAX) {

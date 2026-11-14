@@ -5,7 +5,7 @@ export default async function CustomPlaylistPage({ params }: { params: Promise<{
   const { id } = await params;
   return (
     <>
-      <RouteSync tab="playlist" entityId={decodeURIComponent(id)} />
+      <RouteSync tab="playlist" entityId={id} />
       <MainContent />
     </>
   );

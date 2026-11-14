@@ -31,3 +31,9 @@ export function useNavigate() {
   const router = useRouter();
   return useCallback((route: Route) => router.push(route.path), [router]);
 }
+
+/** Ganti URL tanpa menambah history — dipakai untuk redirect koreksi (link rusak). */
+export function useReplace() {
+  const router = useRouter();
+  return useCallback((route: Route) => router.replace(route.path), [router]);
+}

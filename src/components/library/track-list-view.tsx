@@ -133,6 +133,7 @@ export function TrackListView({
     searching &&
     ((tab === "albums" && !activeAlbum) ||
       (tab === "artists" && !channelInfo) ||
+      (tab === "playlist" && !activeCustomPlaylist) ||
       (tab === "songs" && !displayedTracks.length));
 
   return (
