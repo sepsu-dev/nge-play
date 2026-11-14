@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import type { Track } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 import type { ClockStore } from "@/lib/playback-clock";
 import {
   MEMBER_ICON_IDS,

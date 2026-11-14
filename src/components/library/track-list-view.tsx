@@ -1,14 +1,14 @@
 "use client";
 
-import { ArrowLeft, Heart, Loader2, MoreVertical, Pause, Play, Trash2 } from "lucide-react";
+import { ArrowLeft, Heart, Loader2, MoreVertical, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import type {
   AlbumSummary,
   ArtistSummary,
   ChannelInfo,
-  Track,
   YouTubePlaylist,
 } from "@/actions/youtube";
-import { TrackCover } from "@/components/ui/track-cover";
+import type { Track } from "@/actions/ytm-core";
+import { CARD_SIZES, TrackCover } from "@/components/ui/track-cover";
 import { Tip } from "@/components/ui/tooltip";
 import { formatTime, parseDurationSec } from "@/lib/format";
 import type { CustomPlaylist, TabId } from "@/lib/player-state";
@@ -43,6 +43,7 @@ interface TrackListViewProps {
   onOpenMenu: (track: Track, e: React.MouseEvent, customPlaylistId?: string) => void;
   onSelectPlaylist: (pl: YouTubePlaylist) => void;
   onDeleteCustomPlaylist: (id: string) => void;
+  onRenameCustomPlaylist: (id: string) => void;
   onClearQueue: () => void;
   onClearHistory: () => void;
   onLoadMoreChannel: () => void;
@@ -99,6 +100,7 @@ export function TrackListView({
   onOpenMenu,
   onSelectPlaylist,
   onDeleteCustomPlaylist,
+  onRenameCustomPlaylist,
   onClearQueue,
   onClearHistory,
   onLoadMoreChannel,
@@ -146,9 +148,7 @@ export function TrackListView({
               <button
                 onClick={onBack}
                 aria-label="Back"
-                className={`p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1E222D] text-[#18181B] dark:text-white transition-colors cursor-pointer shrink-0 ${
-                  tab === "liked" || tab === "history" || tab === "playlist" ? "lg:hidden" : ""
-                }`}
+                className="p-2 rounded-full bg-[#F4F5F7] dark:bg-[#161922] hover:bg-[#EAECEF] dark:hover:bg-[#1E222D] text-[#18181B] dark:text-white transition-colors cursor-pointer shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
@@ -215,6 +215,15 @@ export function TrackListView({
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Play All</span>
+            </button>
+          )}
+          {tab === "playlist" && activeCustomPlaylist && (
+            <button
+              onClick={() => onRenameCustomPlaylist(activeCustomPlaylist.id)}
+              className="flex items-center gap-1 text-xs font-semibold text-[#6B7280] hover:text-[#18181B] dark:hover:text-white px-2.5 py-2 cursor-pointer"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Rename
             </button>
           )}
           {tab === "playlist" && activeCustomPlaylist && (
@@ -297,7 +306,7 @@ export function TrackListView({
                 className="flex items-center gap-3 p-2.5 rounded-2xl bg-[#F7F8FA] dark:bg-[#161922] hover:bg-[#F1F3F6] dark:hover:bg-[#1B1F2A] border border-transparent dark:border-white/[0.05] transition-all cursor-pointer"
               >
                 <div className="w-11 h-11 rounded-full overflow-hidden bg-white dark:bg-[#1E222D] shrink-0 border border-black/[0.04] dark:border-white/[0.08]">
-                  <TrackCover src={art.avatar} alt={art.name} iconClass="w-4 h-4" lazy />
+                  <TrackCover src={art.avatar} alt={art.name} iconClass="w-4 h-4" sizes="44px" lazy />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-bold text-[#18181B] dark:text-[#F4F5F7] truncate">
@@ -334,7 +343,7 @@ export function TrackListView({
                 className="group cursor-pointer min-w-0 transition-transform duration-150 active:scale-[0.98]"
               >
                 <div className="relative aspect-square rounded-2xl overflow-hidden bg-[#F3F4F6] dark:bg-[#161922] dark:ring-1 dark:ring-white/[0.06]">
-                  <TrackCover src={alb.thumbnail} alt={alb.title} iconClass="w-6 h-6" lazy />
+                  <TrackCover src={alb.thumbnail} alt={alb.title} iconClass="w-6 h-6" sizes={CARD_SIZES} lazy />
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <span className="w-9 h-9 rounded-full bg-[#FFD014] text-[#18181B] flex items-center justify-center shadow-md">
                       <Play className="w-3.5 h-3.5 fill-current ml-0.5" />

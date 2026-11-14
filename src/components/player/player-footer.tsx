@@ -18,7 +18,8 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import type { ArtistSummary, Track } from "@/actions/youtube";
+import type { ArtistSummary } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 import { TrackCover } from "@/components/ui/track-cover";
 import { Tip } from "@/components/ui/tooltip";
 import { formatTime } from "@/lib/format";
@@ -152,6 +153,7 @@ export function PlayerFooter({
                   alt={currentTrack.title}
                   className="w-11 h-11 rounded-xl object-cover border border-black/[0.05] dark:border-white/[0.08] shrink-0 group-hover/track:scale-[1.03] transition-transform"
                   iconClass="w-4 h-4"
+                  sizes="44px"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-bold text-[#18181B] dark:text-white truncate">

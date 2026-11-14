@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import type { Track } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 import {
   clearQueueKeepCurrent,
+  createPlaylistId,
+  isPlaylistId,
+  migratePlaylistIds,
   resolveExploreFallbackQueue,
   resolveReadyAction,
   resolveRestoredIndex,
@@ -9,7 +12,8 @@ import {
   shouldAcceptPlayerEvent,
   shouldAttemptBackgroundResume,
   shouldRestorePlayerAudio,
-} from "./player-state.ts";
+} from "./player-state";
+import { normalizePlaylistId, ROUTES, routeFromLocation } from "./routes";
 import {
   applyRoomCommand,
   computeRoomTime,
@@ -20,7 +24,7 @@ import {
   MEMBER_AVATARS,
   parseMemberIcon,
   sanitizeMemberName,
-} from "./room.ts";
+} from "./room";
 
 const makeTrack = (id: string): Track => ({
   id,
@@ -234,5 +238,58 @@ assert.equal(shouldRestorePlayerAudio(true, 80, false, 80), true);
 assert.equal(shouldRestorePlayerAudio(false, 0, false, 80), true);
 assert.equal(shouldRestorePlayerAudio(false, 80, false, 80), false);
 assert.equal(shouldRestorePlayerAudio(true, 0, true, 80), false);
+
+// Playlist id berupa UUID v4 -> URL tidak berubah saat nama playlist di-rename.
+const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+assert.match(createPlaylistId(), uuidV4, "playlist id is a UUID v4");
+const playlistIds = new Set(Array.from({ length: 1000 }, () => createPlaylistId()));
+assert.equal(playlistIds.size, 1000, "playlist ids are unique");
+
+// 11. Validasi id playlist: hanya UUID yang boleh masuk URL.
+assert.equal(isPlaylistId(createPlaylistId()), true);
+assert.equal(isPlaylistId("  9F1C2A3E-1B2C-4D5E-8F90-123456789ABC  ".trim()), true);
+assert.equal(isPlaylistId("pl_1730000000"), false);
+assert.equal(isPlaylistId("my-playlist"), false);
+assert.equal(isPlaylistId(""), false);
+
+// 12. Migrasi playlist lama: id non-UUID diganti, id lama dipetakan ke UUID baru.
+const legacyPlaylists = [
+  { id: "pl_1730000000", name: "Chill", tracks: [] },
+  { id: "9f1c2a3e-1b2c-4d5e-8f90-123456789abc", name: "Focus", tracks: [] },
+  { id: "PL_1730000001", name: "Night", tracks: [] },
+];
+const migrated = migratePlaylistIds(legacyPlaylists);
+assert.equal(migrated.playlists.length, 3);
+assert.equal(isPlaylistId(migrated.playlists[0].id), true);
+assert.equal(migrated.playlists[1].id, legacyPlaylists[1].id, "UUID lama dipertahankan");
+assert.equal(isPlaylistId(migrated.playlists[2].id), true);
+assert.equal(migrated.aliases["pl_1730000000"], migrated.playlists[0].id);
+assert.equal(migrated.aliases["pl_1730000001"], migrated.playlists[2].id);
+assert.equal(migrated.playlists[0].name, "Chill", "nama playlist tidak berubah");
+
+// Idempoten: playlist yang sudah UUID tidak dimigrasi ulang.
+const again = migratePlaylistIds(migrated.playlists);
+assert.equal(again.playlists, migrated.playlists, "tidak ada perubahan kedua");
+assert.deepEqual(again.aliases, {});
+
+// Kolisi id: dua playlist dengan id sama tetap mendapat id unik.
+const dup = migratePlaylistIds([
+  { id: "pl_1", name: "A", tracks: [] },
+  { id: "pl_1", name: "B", tracks: [] },
+]);
+assert.notEqual(dup.playlists[0].id, dup.playlists[1].id);
+
+// 13. URL playlist: id di-encode, hanya UUID yang dinormalisasi ke huruf kecil.
+assert.equal(ROUTES.playlist("a/b?c#d"), "/library/playlist/a%2Fb%3Fc%23d");
+assert.equal(
+  normalizePlaylistId(" 9F1C2A3E-1B2C-4D5E-8F90-123456789ABC "),
+  "9f1c2a3e-1b2c-4d5e-8f90-123456789abc"
+);
+assert.equal(normalizePlaylistId("PL_1730000000"), "PL_1730000000", "id lama tidak diubah");
+assert.equal(
+  routeFromLocation("/library/playlist/9f1c2a3e-1b2c-4d5e-8f90-123456789abc", "").entityId,
+  "9f1c2a3e-1b2c-4d5e-8f90-123456789abc"
+);
+assert.equal(routeFromLocation("/library/pl_1730000000", "").tab, "playlist");
 
 console.log("ALL_PLAYER_STATE_CHECKS_PASSED");

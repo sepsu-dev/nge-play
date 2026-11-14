@@ -4,20 +4,28 @@ import { X } from "lucide-react";
 
 interface NewPlaylistModalProps {
   open: boolean;
+  /** "create" untuk playlist baru, "rename" untuk mengganti nama playlist yang ada. */
+  mode?: "create" | "rename";
   name: string;
   onNameChange: (name: string) => void;
   onClose: () => void;
-  onCreate: (name: string) => void;
+  onConfirm: (name: string) => void;
 }
 
 export function NewPlaylistModal({
   open,
+  mode = "create",
   name,
   onNameChange,
   onClose,
-  onCreate,
+  onConfirm,
 }: NewPlaylistModalProps) {
   if (!open) return null;
+
+  const isRename = mode === "rename";
+  const title = isRename ? "Rename Playlist" : "New Playlist";
+  const confirmLabel = isRename ? "Save" : "Create";
+  const canSubmit = name.trim().length > 0;
 
   return (
     <div
@@ -28,12 +36,13 @@ export function NewPlaylistModal({
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          onCreate(name);
+          if (!canSubmit) return;
+          onConfirm(name);
         }}
         className="w-full max-w-sm bg-white dark:bg-[#161922] rounded-3xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] p-6 space-y-4 np-pop-enter"
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-[#18181B] dark:text-white">New Playlist</h3>
+          <h3 className="text-base font-bold text-[#18181B] dark:text-white">{title}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -60,9 +69,10 @@ export function NewPlaylistModal({
           </button>
           <button
             type="submit"
-            className="px-5 py-2 rounded-full text-xs font-bold bg-[#FFD014] hover:bg-[#F5C400] text-[#18181B] transition-transform active:scale-95 cursor-pointer"
+            disabled={!canSubmit}
+            className="px-5 py-2 rounded-full text-xs font-bold bg-[#FFD014] hover:bg-[#F5C400] text-[#18181B] transition-transform active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
           >
-            Create
+            {confirmLabel}
           </button>
         </div>
       </form>

@@ -16,6 +16,14 @@ const nextConfig: NextConfig = {
         source: "/(.*)",
         headers: securityHeaders,
       },
+      // ponytail: allow conditional revalidation (304) on JSON room responses without caching
+      // them; the SSE stream sets its own no-cache headers at runtime.
+      {
+        source: "/api/room",
+        headers: [
+          { key: "Cache-Control", value: "private, max-age=0, must-revalidate" },
+        ],
+      },
     ];
   },
 };

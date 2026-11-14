@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import type { Track } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 
 // Generate a 2-second 8kHz 16-bit mono WAV with +/-1 LSB (-90dB) so Chromium registers
 // the top frame as an audible MediaSession owner without producing audible sound.
@@ -73,12 +73,14 @@ export function useMediaSession({
     }
 
     const artworkSrc =
-      track.thumbnail || (track.id ? `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg` : "");
+      track.thumbnail || (track.id ? `https://i.ytimg.com/vi/${track.id}/mqdefault.jpg` : "");
     ms.metadata = new MediaMetadata({
       title: track.title,
       artist: track.channel,
       album: "Nge-Plays",
-      artwork: artworkSrc ? [{ src: artworkSrc, sizes: "512x512" }] : [],
+      // ponytail: mqdefault is 320x180 — label it truthfully so the OS/lockscreen fetches a
+      // small asset instead of upscaling a 480px "512x512" claim.
+      artwork: artworkSrc ? [{ src: artworkSrc, sizes: "320x180", type: "image/jpeg" }] : [],
     });
     ms.playbackState = playing ? "playing" : "paused";
 

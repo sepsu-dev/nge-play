@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import Script from "next/script";
 import { Toaster } from "react-hot-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/app/globals.css";
@@ -44,13 +45,17 @@ export default function RootLayout({
         <link rel="dns-prefetch" href="https://i.ytimg.com" />
         <link rel="preconnect" href="https://www.youtube-nocookie.com" />
         <link rel="dns-prefetch" href="https://www.youtube-nocookie.com" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `'serviceWorker'in navigator&&navigator.serviceWorker.getRegistrations().then(r=>r.forEach(w=>w.unregister()));'caches'in window&&caches.keys().then(k=>k.filter(n=>n.startsWith('ngeplay-')).forEach(caches.delete.bind(caches)));`,
-          }}
-        />
       </head>
       <body className="antialiased font-sans min-h-screen bg-white text-[#18181B]">
+        {/*
+          `beforeInteractive` menaruh script inline ini di <head> HTML awal dan mem-
+          biarkannya dieksekusi sebelum React hydration. <script> biasa di dalam
+          komponen tidak pernah dieksekusi saat render di client (React 19), jadi
+          harus lewat next/script.
+        */}
+        <Script id="ngeplay-unregister-sw" strategy="beforeInteractive">
+          {`'serviceWorker' in navigator && navigator.serviceWorker.getRegistrations().then(r => r.forEach(w => w.unregister()));'caches' in window && caches.keys().then(k => k.filter(n => n.startsWith('ngeplay-')).forEach(caches.delete.bind(caches)));`}
+        </Script>
         <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
         <Toaster
           position="top-center"

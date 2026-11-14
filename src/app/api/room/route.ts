@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Track } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 import {
   applyRoomCommand,
   createRoomState,

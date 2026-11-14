@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { MoreVertical, Pause, Play } from "lucide-react";
-import type { AlbumSummary, ArtistSummary, Track } from "@/actions/youtube";
-import { TrackCover } from "@/components/ui/track-cover";
+import type { AlbumSummary, ArtistSummary } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
+import { HERO_SIZES, TrackCover } from "@/components/ui/track-cover";
 import { Tip } from "@/components/ui/tooltip";
 
 interface HomeDashboardProps {
@@ -135,7 +136,7 @@ export function HomeDashboard({
             </div>
 
             <div className="relative z-10 w-32 h-32 sm:w-44 sm:h-44 rounded-2xl overflow-hidden shadow-[0_16px_32px_rgba(15,23,42,0.14)] dark:shadow-[0_18px_36px_rgba(0,0,0,0.45)] shrink-0 group-hover:scale-[1.03] transition-transform duration-300 bg-[#EAECEF] dark:bg-[#222632]">
-              <TrackCover src={activeHero.thumbnail} alt={activeHero.title} iconClass="w-8 h-8" />
+              <TrackCover src={activeHero.thumbnail} alt={activeHero.title} iconClass="w-8 h-8" sizes={HERO_SIZES} fetchPriority="high" />
               <div className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-full bg-[#FFD014] text-[#18181B] flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-opacity">
                 <Play className="w-4 h-4 fill-current ml-0.5" />
               </div>
@@ -345,7 +346,7 @@ export function HomeDashboard({
                 className="flex items-center gap-3.5 p-2 -mx-2 rounded-2xl hover:bg-[#F7F8FA] dark:hover:bg-[#161922] transition-colors cursor-pointer group"
               >
                 <div className="w-11 h-11 rounded-full overflow-hidden bg-[#F3F4F6] dark:bg-[#1E222D] shrink-0 border border-black/[0.04] dark:border-white/[0.08]">
-                  <TrackCover src={artist.avatar} alt={artist.name} iconClass="w-4 h-4" lazy />
+                  <TrackCover src={artist.avatar} alt={artist.name} iconClass="w-4 h-4" sizes="44px" lazy />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-bold text-[#18181B] dark:text-[#F4F5F7] truncate">

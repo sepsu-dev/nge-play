@@ -10,7 +10,8 @@ import {
   Play,
 } from "lucide-react";
 import type { LyricsResult } from "@/actions/lyrics";
-import type { ArtistSummary, Track } from "@/actions/youtube";
+import type { ArtistSummary } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 import { TrackCover } from "@/components/ui/track-cover";
 import { Tip } from "@/components/ui/tooltip";
 import type { ClockStore } from "@/lib/playback-clock";
@@ -305,6 +306,7 @@ export function NowPlayingModal({
               trackId={currentTrack.id}
               alt={currentTrack.title}
               iconClass="w-12 h-12"
+              sizes="(min-width: 1024px) 380px, 70vw"
             />
           </div>
           <h2 className="text-lg sm:text-2xl font-extrabold tracking-tight text-[#18181B] dark:text-white mt-4 lg:mt-5 max-w-md line-clamp-2">

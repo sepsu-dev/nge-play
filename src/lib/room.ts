@@ -1,4 +1,4 @@
-import type { Track } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 
 export const MEMBER_ICON_IDS = [
   "fox",

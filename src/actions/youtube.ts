@@ -1,16 +1,20 @@
 "use server";
 
 import { headers } from "next/headers";
+import {
+  FALLBACK_THUMB,
+  THUMB_SIZE,
+  hydrateTrackDurations as hydrateDurations,
+  normalizeDuration,
+  sizeThumbUrl,
+  walkObject,
+} from "@/actions/ytm-core";
 
-export interface Track {
-  id: string;
-  title: string;
-  channel: string;
-  channelId?: string;
-  duration: string;
-  thumbnail: string;
-  views?: string;
-}
+// NOTE: this module is "use server". Next enumerates every export as a client-callable action,
+// so a type-only export (`export type { Track }`) is erased by the TS compiler and leaves a
+// runtime binding that does not exist -> "Track is not defined" at module evaluation.
+// Keep this file free of type exports; import `Track` from "@/actions/ytm-core" instead.
+import type { Track } from "@/actions/ytm-core";
 
 export interface YouTubePlaylist {
   id: string;
@@ -237,11 +241,6 @@ async function ytmPost(
   }
 }
 
-function normalizeDuration(raw?: string): string {
-  if (!raw) return "—";
-  return /^\d+(\.\d{2})+$/.test(raw) ? raw.replace(/\./g, ":") : raw;
-}
-
 function extractVideoId(input: string): string | null {
   const match = input.match(
     /(?:(?:music\.)?youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
@@ -258,16 +257,6 @@ function extractPlaylistId(input: string): string | null {
 
 function toYtmListBrowseId(listId: string): string {
   return listId.startsWith("VL") || listId.startsWith("FE") ? listId : `VL${listId}`;
-}
-
-function walkObject(node: any, visitor: (obj: any) => void) {
-  if (!node || typeof node !== "object") return;
-  visitor(node);
-  if (Array.isArray(node)) {
-    for (const item of node) walkObject(item, visitor);
-  } else {
-    for (const key of Object.keys(node)) walkObject(node[key], visitor);
-  }
 }
 
 function findBrowseId(node: any): string | undefined {
@@ -343,10 +332,10 @@ function extractRunsMeta(runs: any[]) {
   };
 }
 
-function ytmThumb(thumbs: any[] | undefined, videoId: string, size = 544): string {
+function ytmThumb(thumbs: any[] | undefined, videoId: string, size = THUMB_SIZE): string {
   const url = thumbs?.slice(-1)[0]?.url;
-  if (!url) return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-  return url.replace(/=w\d+-h\d+([^&\s]*)/i, `=w${size}-h${size}$1`);
+  if (!url) return `https://i.ytimg.com/vi/${videoId}/${FALLBACK_THUMB}`;
+  return sizeThumbUrl(url, size);
 }
 
 function parseYtmTracks(
@@ -451,53 +440,10 @@ function parseYtmPlaylists(data: any, limit = 8, officialOnly = false): YouTubeP
   return list;
 }
 
-// ponytail: in-memory cache for track durations, capped at 1500 items
-const DURATION_CACHE_MAX = 1500;
-const durationCache = new Map<string, string>();
-
-export async function hydrateTrackDurations<T extends Track>(tracks: T[]): Promise<T[]> {
-  const missingTracks = tracks.filter((t) => t.id && (!t.duration || t.duration === "—"));
-  if (!missingTracks.length) return tracks;
-
-  const missingIds = [
-    ...new Set(
-      missingTracks
-        .map((t) => t.id)
-        .filter((id) => !durationCache.has(id))
-    ),
-  ];
-
-  if (missingIds.length > 0) {
-    const chunks: string[][] = [];
-    for (let i = 0; i < missingIds.length; i += 40) {
-      chunks.push(missingIds.slice(i, i + 40));
-    }
-
-    await Promise.all(
-      chunks.map(async (videoIds) => {
-        const res = await ytmPost("music/get_queue", { videoIds });
-        if (!res) return;
-        walkObject(res, (o) => {
-          const p = o?.playlistPanelVideoRenderer;
-          const id = p?.videoId;
-          const raw = p?.lengthText?.runs?.[0]?.text || p?.lengthText?.simpleText;
-          if (id && raw) {
-            if (durationCache.size >= DURATION_CACHE_MAX) {
-              const oldest = durationCache.keys().next().value;
-              if (oldest) durationCache.delete(oldest);
-            }
-            durationCache.set(id, normalizeDuration(String(raw)));
-          }
-        });
-      })
-    );
-  }
-
-  return tracks.map((t) =>
-    (!t.duration || t.duration === "—") && durationCache.has(t.id)
-      ? { ...t, duration: durationCache.get(t.id)! }
-      : t
-  );
+// ponytail: durations are hydrated inside the same Server Action call (see hydrateYt below)
+// so the client never needs a second round-trip for the same list.
+function hydrateYt<T extends Track>(tracks: T[]): Promise<T[]> {
+  return hydrateDurations(tracks, ytmPost);
 }
 
 function parseYtmAlbums(dataList: any[], limit = 16): AlbumSummary[] {
@@ -514,7 +460,7 @@ function parseYtmAlbums(dataList: any[], limit = 16): AlbumSummary[] {
       subtitle: subtitle || meta.channel,
       artist: meta.channel,
       channelId: meta.channelId,
-      thumbnail: rawThumb.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1"),
+      thumbnail: rawThumb ? sizeThumbUrl(rawThumb) : "",
     });
   };
   for (const data of dataList) {
@@ -677,13 +623,13 @@ export async function fetchYouTubeExplore(
     return cached.data;
   }
 
-  const [homeData1, homeData2, chartsData, exploreData] = await Promise.all([
-    ytmPost("browse", { browseId: "FEmusic_home" }, clientHint),
+  const [homeData1, chartsData, exploreData] = await Promise.all([
     ytmPost("browse", { browseId: "FEmusic_home" }, clientHint),
     ytmPost("browse", { browseId: "FEmusic_charts" }, clientHint),
     ytmPost("browse", { browseId: "FEmusic_explore" }, clientHint),
   ]);
-  const homeData = [homeData1, homeData2];
+  // ponytail: single home request now; the retry below only fires if parsing yields nothing
+  const homeData = [homeData1];
 
   const playlists: YouTubePlaylist[] = [
     { id: "FEmusic_home", title: "Quick Picks" },
@@ -748,7 +694,7 @@ export async function fetchYouTubeExplore(
   const albums = parseYtmAlbums([exploreData, homeData], 16);
   const artists = parseYtmArtists([chartsData, homeData], 16);
 
-  const hydrated = await hydrateTrackDurations([...tracks, ...rawTrending]);
+  const hydrated = await hydrateYt([...tracks, ...rawTrending]);
   const hTracks = hydrated.slice(0, tracks.length);
   const hTrending = hydrated.slice(tracks.length);
 
@@ -789,14 +735,14 @@ export async function fetchYouTubeAlbum(
   const subtitle = (hdr?.subtitle?.runs || []).map((r: any) => r.text).join("").trim();
   const rawThumb =
     hdr?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || "";
-  const thumbnail = rawThumb ? rawThumb.replace(/=w\d+-h\d+([^&\s]*)/i, "=w544-h544$1") : "";
+  const thumbnail = rawThumb ? sizeThumbUrl(rawThumb) : "";
 
   const parsed = parseYtmTracks(data, 50, {
     channel: meta.channel !== "YouTube Music" ? meta.channel : undefined,
     channelId: meta.channelId,
     thumbnail: thumbnail || undefined,
   });
-  const tracks = await hydrateTrackDurations(parsed);
+  const tracks = await hydrateYt(parsed);
 
   return {
     album: {
@@ -823,7 +769,7 @@ export async function fetchRelatedTracks(videoId: string): Promise<Track[]> {
   if (relBid) {
     const rel = await ytmPost("browse", { browseId: relBid });
     const parsed = parseYtmTracks(rel, 24);
-    if (parsed.length) return hydrateTrackDurations(parsed);
+    if (parsed.length) return hydrateYt(parsed);
   }
   const seen = new Set<string>([videoId]);
   const fallback: Track[] = [];
@@ -843,7 +789,7 @@ export async function fetchRelatedTracks(videoId: string): Promise<Track[]> {
       thumbnail: ytmThumb(p.thumbnail?.thumbnails, id),
     });
   });
-  return hydrateTrackDurations(fallback);
+  return hydrateYt(fallback);
 }
 
 export async function searchYouTube(query: string, clientHint?: string): Promise<Track[]> {
@@ -864,7 +810,7 @@ export async function searchYouTubeMusic(
     const listData = await ytmPost("browse", { browseId: toYtmListBrowseId(listId) }, clientHint);
     const items = parseYtmTracks(listData, 40);
     if (items.length) {
-      return { tracks: await hydrateTrackDurations(items), albums: [], artists: [] };
+      return { tracks: await hydrateYt(items), albums: [], artists: [] };
     }
   }
 
@@ -890,7 +836,7 @@ export async function searchYouTubeMusic(
             duration: normalizeDuration(pvr.lengthText?.runs?.[0]?.text || pvr.lengthText?.simpleText),
             thumbnail:
               pvr.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
-              `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+              `https://i.ytimg.com/vi/${directId}/${FALLBACK_THUMB}`,
           },
         ],
         albums: [],
@@ -904,7 +850,7 @@ export async function searchYouTubeMusic(
           title: `YouTube Music (${directId})`,
           channel: "YouTube Music",
           duration: "—",
-          thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+          thumbnail: `https://i.ytimg.com/vi/${directId}/${FALLBACK_THUMB}`,
         },
       ],
       albums: [],
@@ -961,10 +907,19 @@ export async function searchYouTubeMusic(
   const artists = parseYtmArtists([artistsData, generalData], 16);
 
   return {
-    tracks: await hydrateTrackDurations(tracks),
+    tracks: await hydrateYt(tracks),
     albums,
     artists,
   };
+}
+
+// Backfills missing durations for already-stored client lists (queue/history/liked restore).
+// Kept as its own action so normal search/browse never pays a second request.
+export async function hydrateTrackDurations(tracks: Track[], clientHint?: string): Promise<Track[]> {
+  if (!Array.isArray(tracks) || !tracks.length) return [];
+  const missing = tracks.filter((t) => t?.id && (!t.duration || t.duration === "—"));
+  if (!missing.length) return tracks;
+  return hydrateDurations(tracks, (endpoint, body) => ytmPost(endpoint, body, clientHint));
 }
 
 export async function resolveChannelFromVideo(videoId: string): Promise<string | null> {
@@ -987,7 +942,7 @@ export async function fetchYouTubeChannel(
     if (!res) return null;
     return {
       channel: { id: channelId, title: knownTitle || "Artist" },
-      tracks: await hydrateTrackDurations(parseYtmTracks(res, 60)),
+      tracks: await hydrateYt(parseYtmTracks(res, 60)),
       continuation: findContinuation(res),
     };
   }
@@ -1025,7 +980,7 @@ export async function fetchYouTubeChannel(
 
   return {
     channel: { id: resolvedId, title, avatar, subscribers, videoCount },
-    tracks: await hydrateTrackDurations(parseYtmTracks(data, 40)),
+    tracks: await hydrateYt(parseYtmTracks(data, 40)),
     continuation: seeAllBrowseId || findContinuation(data),
   };
 }

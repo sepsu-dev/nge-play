@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Plus } from "lucide-react";
-import type { Track } from "@/actions/youtube";
+import type { Track } from "@/actions/ytm-core";
 import type { CustomPlaylist, TrackMenuState } from "@/lib/player-state";
 
 interface TrackContextMenuProps {
